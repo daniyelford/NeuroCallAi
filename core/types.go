@@ -13,7 +13,25 @@ import (
 // --------------------
 // SIP
 // --------------------
-
+type SIPCall struct {
+	CallID       string
+	TTS          *TTSPlayback
+	RemoteIP     net.IP
+	RemotePort   int
+	LocalRTPPort int
+	Codec        neurocall.Codec
+	RemoteAddr   *net.UDPAddr
+	RTP          *RTPSession
+	Pipeline     *AudioPipeline
+	VAD          neurocall.VAD
+	Segmenter    neurocall.SpeechSegmenter
+	STT          *STTWorker
+	Conversation *Conversation
+	dialog       *SIPDialog
+	answered     bool
+	closed       bool
+	mu           sync.RWMutex
+}
 type SIPMessage struct {
 	StartLine string
 	Headers   map[string]string
@@ -62,22 +80,35 @@ type RemoteMedia struct {
 	Codecs []neurocall.Codec
 }
 type CallSession struct {
-	mu           sync.RWMutex
-	ID           string
-	Call         *SIPCall
-	Audio        *AudioPipeline
-	STT          neurocall.STT
-	StreamingSTT neurocall.StreamingSTT
-	STTWorker    *STTWorker
-	TTS          neurocall.TTS
-	LLM          neurocall.LLM
-	Memory       neurocall.Memory
-	Tools        neurocall.ToolRegistry
-	Events       *EventBus
-	ctx          context.Context
-	cancel       context.CancelFunc
-	running      bool
-	closed       bool
+	mu                 sync.RWMutex
+	ID                 string
+	Call               *SIPCall
+	Audio              *AudioPipeline
+	STT                neurocall.STT
+	StreamingSTT       neurocall.StreamingSTT
+	STTWorker          *STTWorker
+	TTS                neurocall.TTS
+	LLM                neurocall.LLM
+	Memory             neurocall.Memory
+	Tools              neurocall.ToolRegistry
+	Events             *EventBus
+	Conversation       *Conversation
+	ConversationEngine *ConversationEngine
+	VoiceEngine        *VoiceResponseEngine
+	ctx                context.Context
+	cancel             context.CancelFunc
+	running            bool
+	closed             bool
+	sttEventsAttached  bool
+}
+type CallSessionState struct {
+	ID       string
+	Running  bool
+	Closed   bool
+	HasAudio bool
+	HasSTT   bool
+	HasLLM   bool
+	HasTTS   bool
 }
 type CallManager struct {
 	mu       sync.RWMutex
@@ -137,6 +168,12 @@ type Pipeline struct {
 	encoder   neurocall.Encoder
 	decoder   neurocall.Decoder
 	resampler neurocall.Resampler
+}
+type AudioFrame struct {
+	Data       []int16
+	Timestamp  uint32
+	SampleRate int
+	Channels   int
 }
 
 // --------------------
@@ -230,25 +267,6 @@ type STTEngine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 }
-type SIPCall struct {
-	CallID       string
-	TTS          *TTSPlayback
-	RemoteIP     net.IP
-	RemotePort   int
-	LocalRTPPort int
-	Codec        neurocall.Codec
-	RemoteAddr   *net.UDPAddr
-	RTP          *RTPSession
-	Pipeline     *AudioPipeline
-	VAD          neurocall.VAD
-	Segmenter    neurocall.SpeechSegmenter
-	STT          *STTWorker
-	Conversation *Conversation
-	dialog       *SIPDialog
-	answered     bool
-	closed       bool
-	mu           sync.RWMutex
-}
 type EnergyVAD struct {
 	Threshold int64
 }
@@ -298,6 +316,7 @@ type Conversation struct {
 	mu       sync.RWMutex
 	messages []neurocall.Message
 	memory   *CallMemory
+	// responseMu sync.Mutex
 }
 type ConversationEngine struct {
 	mu            sync.RWMutex
@@ -305,7 +324,6 @@ type ConversationEngine struct {
 	conversations map[string]*Conversation
 	bus           *EventBus
 }
-
 type LLMResponseEvent struct {
 	CallID  string
 	Message neurocall.Message
@@ -401,6 +419,22 @@ type TTSErrorEvent struct {
 	Err    error
 }
 type FakeSTT struct{}
+type AudioReceiveConfig struct {
+	SampleRate int
+	Channels   int
+	FrameSize  int
+}
+type AudioProcessor struct {
+	mu        sync.RWMutex
+	vad       neurocall.VAD
+	segmenter neurocall.SpeechSegmenter
+	worker    *STTWorker
+	bus       *EventBus
+	ctx       context.Context
+	cancel    context.CancelFunc
+	running   bool
+	closed    bool
+}
 
 //	type TTSJob struct {
 //		CallID string

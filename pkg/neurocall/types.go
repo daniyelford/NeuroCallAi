@@ -78,12 +78,6 @@ type Memory interface {
 	Delete(key string)
 	Clear()
 }
-type STT interface {
-	Transcribe(
-		ctx context.Context,
-		segment AudioSegment,
-	) (Transcript, error)
-}
 type Transcript struct {
 	Text       string
 	Confidence float64
@@ -99,6 +93,12 @@ type StreamingSTT interface {
 	) error
 	Events() <-chan STTEvent
 	Close() error
+}
+type STT interface {
+	Transcribe(
+		ctx context.Context,
+		segment AudioSegment,
+	) (Transcript, error)
 }
 type STTEvent struct {
 	Type       STTEventType

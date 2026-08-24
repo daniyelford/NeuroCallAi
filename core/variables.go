@@ -18,19 +18,21 @@ const (
 	DefaultAudioChannels   = 1
 	DefaultAudioFrameSize  = 160
 	// Events
-	EventTTSResponseError = "tts.response.error"
-	EventLLMError         = "llm.error"
-	EventSTTEvent         = "stt.event"
-	EventSTTError         = "stt.error"
-	EventCallStarted      = "call.started"
-	EventCallAnswered     = "call.answered"
-	EventCallEnded        = "call.ended"
-	EventAudioReceived    = "audio.received"
-	EventAudioSent        = "audio.sent"
-	EventTranscript       = "audio.transcript"
-	EventToolCall         = "tool.call"
-	EventError            = "error"
-	EventLLMResponse      = "llm.response"
+	EventAudioSegment        = "audio.segment"
+	EventAudioProcessorError = "audio.processor.error"
+	EventTTSResponseError    = "tts.response.error"
+	EventLLMError            = "llm.error"
+	EventSTTEvent            = "stt.event"
+	EventSTTError            = "stt.error"
+	EventCallStarted         = "call.started"
+	EventCallAnswered        = "call.answered"
+	EventCallEnded           = "call.ended"
+	EventAudioReceived       = "audio.received"
+	EventAudioSent           = "audio.sent"
+	EventTranscript          = "audio.transcript"
+	EventToolCall            = "tool.call"
+	EventError               = "error"
+	EventLLMResponse         = "llm.response"
 )
 
 var (

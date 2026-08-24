@@ -164,7 +164,10 @@ func (p *AudioPipeline) run() {
 		select {
 		case <-p.ctx.Done():
 			return
-		case pcm := <-p.input:
+		case pcm, ok := <-p.input:
+			if !ok {
+				return
+			}
 			p.mu.RLock()
 			encoder := p.encoder
 			decoder := p.decoder
@@ -191,21 +194,15 @@ func (p *AudioPipeline) SetEncoder(encoder neurocall.Encoder) {
 	defer p.mu.Unlock()
 	p.encoder = encoder
 }
-func (p *AudioPipeline) SetDecoder(
-	decoder neurocall.Decoder,
-) {
+func (p *AudioPipeline) SetDecoder(decoder neurocall.Decoder) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
 	p.decoder = decoder
 }
-func (p *AudioPipeline) Push(
-	audio []int16,
-) error {
+func (p *AudioPipeline) Push(audio []int16) error {
 	select {
 	case p.input <- audio:
 		return nil
-
 	case <-p.ctx.Done():
 		return neurocall.ErrCallClosed
 	}
@@ -214,95 +211,60 @@ func (p *AudioPipeline) Pull() ([]int16, error) {
 	select {
 	case audio := <-p.output:
 		return audio, nil
-
 	case <-p.ctx.Done():
 		return nil, neurocall.ErrCallClosed
 	}
 }
-func (p *AudioPipeline) SetResampler(
-	resampler neurocall.Resampler,
-) {
+func (p *AudioPipeline) SetResampler(resampler neurocall.Resampler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
 	p.resampler = resampler
 }
-func (p *AudioPipeline) Resample(
-	input []int16,
-	fromRate int,
-	toRate int,
-) []int16 {
-
+func (p *AudioPipeline) Resample(input []int16, fromRate int, toRate int) []int16 {
 	p.mu.RLock()
 	resampler := p.resampler
 	p.mu.RUnlock()
-
 	if resampler == nil {
 		return input
 	}
-
 	if fromRate == toRate {
 		return input
 	}
-
-	return resampler.Resample(
-		input,
-		fromRate,
-		toRate,
-	)
+	return resampler.Resample(input, fromRate, toRate)
 }
 func (p *AudioPipeline) Encoder() neurocall.Encoder {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-
 	return p.encoder
 }
 func (p *AudioPipeline) Decoder() neurocall.Decoder {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-
 	return p.decoder
 }
 func (p *AudioPipeline) Resampler() neurocall.Resampler {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-
 	return p.resampler
 }
 
 // AudioPipeline
 // EventBus
 func NewEventBus() *EventBus {
-	return &EventBus{
-		handlers: make(
-			map[string][]EventHandler,
-		),
-	}
+	return &EventBus{handlers: make(map[string][]EventHandler)}
 }
-func (b *EventBus) Subscribe(
-	name string,
-	handler EventHandler,
-) {
+func (b *EventBus) Subscribe(name string, handler EventHandler) {
 	if handler == nil {
 		return
 	}
-
 	b.mu.Lock()
 	defer b.mu.Unlock()
-
-	b.handlers[name] =
-		append(b.handlers[name], handler)
+	b.handlers[name] = append(b.handlers[name], handler)
 }
 func (b *EventBus) Publish(event Event) {
 	b.mu.RLock()
-
-	handlers := append(
-		[]EventHandler(nil),
-		b.handlers[event.Name]...,
-	)
-
+	handlers := append([]EventHandler(nil), b.handlers[event.Name]...)
 	b.mu.RUnlock()
-
 	for _, handler := range handlers {
 		handler(event)
 	}
@@ -555,6 +517,10 @@ func (m *CallManager) Get(
 	return call, nil
 }
 func (m *CallManager) Remove(id string) error {
+	if m == nil {
+		return neurocall.ErrCallNotFound
+	}
+
 	m.mu.Lock()
 
 	call, exists := m.calls[id]
@@ -568,19 +534,26 @@ func (m *CallManager) Remove(id string) error {
 	delete(m.calls, id)
 	delete(m.sessions, id)
 
-	localPort := call.LocalRTPPort
-
 	m.mu.Unlock()
 
-	if localPort > 0 {
-		m.ports.Release(localPort)
+	if call != nil {
+		call.mu.Lock()
+		localPort := call.LocalRTPPort
+		call.LocalRTPPort = 0
+		call.mu.Unlock()
+
+		if localPort > 0 {
+			m.ports.Release(localPort)
+		}
 	}
 
 	if session != nil {
 		_ = session.Close()
 	}
 
-	_ = call.CloseResources()
+	if call != nil {
+		_ = call.CloseResources()
+	}
 
 	return nil
 }
@@ -641,18 +614,16 @@ func (m *CallManager) GetSession(
 
 	return session, nil
 }
-func (m *CallManager) RemoveSession(
-	id string,
-) error {
+func (m *CallManager) RemoveSession(id string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	session, ok := m.sessions[id]
 	if !ok {
+		m.mu.Unlock()
 		return neurocall.ErrCallNotFound
 	}
-	session.Close()
 	delete(m.sessions, id)
-	return nil
+	m.mu.Unlock()
+	return session.Close()
 }
 
 // CallManager
@@ -661,19 +632,270 @@ func NewCallSession(call *SIPCall) (*CallSession, error) {
 	if call == nil {
 		return nil, neurocall.ErrCallNotFound
 	}
+
 	if call.CallID == "" {
 		return nil, neurocall.ErrCallNotFound
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	return &CallSession{
-		ID:     call.CallID,
-		Call:   call,
-		Events: NewEventBus(),
-		ctx:    ctx,
-		cancel: cancel,
+
+	ctx, cancel := context.WithCancel(
+		context.Background(),
+	)
+
+	events := NewEventBus()
+
+	conversation := NewConversation()
+
+	session := &CallSession{
+		ID:           call.CallID,
+		Call:         call,
+		Events:       events,
+		Conversation: conversation,
+
 		Memory: NewMemory(),
 		Tools:  NewToolRegistry(),
-	}, nil
+
+		ctx:    ctx,
+		cancel: cancel,
+	}
+
+	return session, nil
+}
+func (s *CallSession) ConfigureConversation(
+	llm *LLMEngine,
+) error {
+	if s == nil {
+		return neurocall.ErrCallClosed
+	}
+
+	if llm == nil {
+		return fmt.Errorf("LLM engine is nil")
+	}
+
+	s.mu.Lock()
+
+	if s.closed {
+		s.mu.Unlock()
+		return neurocall.ErrCallClosed
+	}
+
+	s.LLM = llm
+
+	s.ConversationEngine =
+		NewConversationEngine(
+			llm,
+			s.Events,
+		)
+
+	s.mu.Unlock()
+
+	return s.AttachSTTEvents()
+}
+func (s *CallSession) ConfigureVoice(
+	tts *TTSEngine,
+) error {
+	if s == nil {
+		return neurocall.ErrCallClosed
+	}
+
+	if tts == nil {
+		return fmt.Errorf("TTS engine is nil")
+	}
+
+	s.mu.Lock()
+
+	if s.closed {
+		s.mu.Unlock()
+		return neurocall.ErrCallClosed
+	}
+
+	s.TTS = tts
+
+	voice := NewVoiceResponseEngine(
+		tts,
+		s.Events,
+	)
+
+	s.VoiceEngine = voice
+
+	call := s.Call
+
+	s.mu.Unlock()
+
+	if call != nil {
+		voice.RegisterCall(call)
+	}
+
+	return nil
+}
+func (s *CallSession) ConfigureSTT(
+	worker *STTWorker,
+) error {
+	if s == nil {
+		return neurocall.ErrCallClosed
+	}
+
+	if worker == nil {
+		return fmt.Errorf("STT worker is nil")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return neurocall.ErrCallClosed
+	}
+
+	s.STTWorker = worker
+
+	return nil
+}
+func (s *CallSession) AttachSTTEvents() error {
+	if s == nil {
+		return neurocall.ErrCallClosed
+	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return neurocall.ErrCallClosed
+	}
+	if s.sttEventsAttached {
+		s.mu.Unlock()
+		return nil
+	}
+	bus := s.Events
+	engine := s.ConversationEngine
+	if bus == nil {
+		s.mu.Unlock()
+		return fmt.Errorf("event bus is nil")
+	}
+	if engine == nil {
+		s.mu.Unlock()
+		return fmt.Errorf(
+			"conversation engine is not configured",
+		)
+	}
+	s.sttEventsAttached = true
+	s.mu.Unlock()
+	bus.Subscribe(
+		EventTranscript,
+		func(event Event) {
+			data, ok := event.Data.(TranscriptEvent)
+			if !ok {
+				return
+			}
+			if data.CallID != s.ID {
+				return
+			}
+			go func() {
+				if err := engine.HandleTranscript(data); err != nil {
+					bus.Publish(Event{Name: EventLLMError, Data: err})
+				}
+			}()
+		},
+	)
+	return nil
+}
+func (s *CallSession) ProcessAudioSegment(
+	segment neurocall.AudioSegment,
+) error {
+
+	if s == nil {
+		return neurocall.ErrCallClosed
+	}
+
+	if len(segment.Data) == 0 {
+		return neurocall.ErrInvalidAudio
+	}
+
+	s.mu.RLock()
+
+	if s.closed || !s.running {
+		s.mu.RUnlock()
+		return neurocall.ErrCallClosed
+	}
+
+	worker := s.STTWorker
+
+	s.mu.RUnlock()
+
+	if worker == nil {
+		return fmt.Errorf(
+			"STT worker is not configured",
+		)
+	}
+
+	return worker.Push(segment)
+}
+func (s *CallSession) ProcessAudioFrame(
+	ctx context.Context,
+	frame neurocall.AudioFrame,
+	pcm []int16,
+) error {
+	if s == nil {
+		return neurocall.ErrCallClosed
+	}
+
+	if len(pcm) == 0 {
+		return neurocall.ErrInvalidAudio
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	s.mu.RLock()
+
+	if s.closed || !s.running {
+		s.mu.RUnlock()
+		return neurocall.ErrCallClosed
+	}
+
+	vad := s.Call.VAD
+	segmenter := s.Call.Segmenter
+	worker := s.STTWorker
+
+	s.mu.RUnlock()
+
+	if segmenter == nil {
+		return fmt.Errorf("speech segmenter is not configured")
+	}
+
+	if worker == nil {
+		return fmt.Errorf("STT worker is not configured")
+	}
+
+	if vad != nil {
+		speech, err := vad.Process(ctx, frame)
+
+		if err != nil {
+			return err
+		}
+
+		if !speech {
+			return nil
+		}
+	}
+
+	segments, err := segmenter.Process(
+		ctx,
+		frame,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	for _, segment := range segments {
+		if len(segment.Data) == 0 {
+			continue
+		}
+
+		if err := worker.Push(segment); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 func (s *CallSession) SetSTT(
 	stt neurocall.STT,
@@ -729,6 +951,10 @@ func (s *CallSession) Context() context.Context {
 	return s.ctx
 }
 func (s *CallSession) Start() error {
+	if s == nil {
+		return neurocall.ErrCallClosed
+	}
+
 	s.mu.Lock()
 
 	if s.closed {
@@ -742,12 +968,22 @@ func (s *CallSession) Start() error {
 	}
 
 	s.running = true
+
+	audio := s.Audio
 	worker := s.STTWorker
 
 	s.mu.Unlock()
 
+	if audio != nil {
+		audio.Start()
+	}
+
 	if worker != nil {
 		if err := worker.Start(); err != nil {
+			if audio != nil {
+				_ = audio.Close()
+			}
+
 			s.mu.Lock()
 			s.running = false
 			s.mu.Unlock()
@@ -756,12 +992,102 @@ func (s *CallSession) Start() error {
 		}
 	}
 
-	s.Events.Publish(Event{
-		Name: EventCallStarted,
-		Data: s,
-	})
+	// if err := s.AttachSTTEventsIfReady(); err != nil {
+	// 	s.mu.Lock()
+	// 	s.running = false
+	// 	s.mu.Unlock()
+
+	// 	return err
+	// }
+
+	if s.Events != nil {
+		s.Events.Publish(Event{
+			Name: EventCallStarted,
+			Data: s,
+		})
+	}
 
 	return nil
+}
+func (s *CallSession) State() CallSessionState {
+	if s == nil {
+		return CallSessionState{
+			Closed: true,
+		}
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return CallSessionState{
+		ID: s.ID,
+
+		Running: s.running,
+		Closed:  s.closed,
+
+		HasAudio: s.Audio != nil,
+		HasSTT:   s.STTWorker != nil,
+		HasLLM:   s.ConversationEngine != nil,
+		HasTTS:   s.VoiceEngine != nil,
+	}
+}
+func (s *CallSession) PushAudio(
+	audio []int16,
+) error {
+
+	if s == nil {
+		return neurocall.ErrCallClosed
+	}
+
+	if len(audio) == 0 {
+		return neurocall.ErrInvalidAudio
+	}
+
+	s.mu.RLock()
+
+	if s.closed || !s.running {
+		s.mu.RUnlock()
+		return neurocall.ErrCallClosed
+	}
+
+	pipeline := s.Audio
+
+	s.mu.RUnlock()
+
+	if pipeline == nil {
+		return fmt.Errorf("audio pipeline is not configured")
+	}
+
+	return pipeline.Push(audio)
+}
+func (s *CallSession) PushSTTSegment(
+	segment neurocall.AudioSegment,
+) error {
+
+	if s == nil {
+		return neurocall.ErrCallClosed
+	}
+
+	if len(segment.Data) == 0 {
+		return neurocall.ErrInvalidAudio
+	}
+
+	s.mu.RLock()
+
+	if s.closed || !s.running {
+		s.mu.RUnlock()
+		return neurocall.ErrCallClosed
+	}
+
+	worker := s.STTWorker
+
+	s.mu.RUnlock()
+
+	if worker == nil {
+		return fmt.Errorf("STT worker is not configured")
+	}
+
+	return worker.Push(segment)
 }
 func (s *CallSession) Running() bool {
 	s.mu.RLock()
@@ -791,28 +1117,50 @@ func (s *CallSession) GetSTTWorker() *STTWorker {
 	return s.STTWorker
 }
 func (s *CallSession) Close() error {
+	if s == nil {
+		return nil
+	}
+
 	s.mu.Lock()
+
 	if s.closed {
 		s.mu.Unlock()
 		return nil
 	}
+
 	s.closed = true
 	s.running = false
+
 	cancel := s.cancel
 	worker := s.STTWorker
+	audio := s.Audio
+	events := s.Events
+
 	s.mu.Unlock()
+
+	// Stop STT first.
 	if worker != nil {
 		worker.Stop()
 	}
+
+	// Stop audio pipeline.
+	if audio != nil {
+		_ = audio.Close()
+	}
+
+	// Cancel session context.
 	if cancel != nil {
 		cancel()
 	}
-	if s.Events != nil {
-		s.Events.Publish(Event{
+
+	// Notify observers.
+	if events != nil {
+		events.Publish(Event{
 			Name: EventCallEnded,
 			Data: s,
 		})
 	}
+
 	return nil
 }
 
@@ -1239,30 +1587,30 @@ func (c *SIPCall) Speak(
 }
 func (c *SIPCall) CloseResources() error {
 	c.mu.Lock()
-
 	rtp := c.RTP
 	pipeline := c.Pipeline
-
+	tts := c.TTS
 	c.RTP = nil
 	c.Pipeline = nil
+	c.TTS = nil
 	c.closed = true
-
 	c.mu.Unlock()
-
 	var firstErr error
-
 	if rtp != nil {
 		if err := rtp.Close(); err != nil {
 			firstErr = err
 		}
 	}
-
 	if pipeline != nil {
 		if err := pipeline.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
-
+	if tts != nil {
+		if err := tts.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
 	return firstErr
 }
 
@@ -1587,19 +1935,15 @@ func (s *SIPServer) handleINVITE(_ context.Context, req *SIPMessage, remote *net
 		cleanup()
 		return err
 	}
-	// From this point onward, every failure
-	// must remove the call.
-	// --------------------
-	// Create session
-	// --------------------
 	session, err := s.manager.CreateSession(call)
 	if err != nil {
 		cleanup()
 		return err
 	}
+
 	sttWorker, err := NewSTTWorker(
 		s.stt,
-		s.bus,
+		session.Events,
 		callID,
 		16,
 	)
@@ -1607,55 +1951,77 @@ func (s *SIPServer) handleINVITE(_ context.Context, req *SIPMessage, remote *net
 		cleanup()
 		return err
 	}
+
 	if err := session.SetSTTWorker(sttWorker); err != nil {
 		cleanup()
 		return err
 	}
+
 	if err := call.SetSTTWorker(sttWorker); err != nil {
 		cleanup()
 		return err
 	}
-	sttWorker.Start()
-	// --------------------
-	// Allocate RTP port
-	// --------------------
+
+	if s.llm != nil {
+		if err := session.ConfigureConversation(s.llm); err != nil {
+			cleanup()
+			return err
+		}
+	}
+
+	if s.tts != nil {
+		if err := session.ConfigureVoice(s.tts); err != nil {
+			cleanup()
+			return err
+		}
+	}
+
+	// Allocate RTP
 	port, err := s.manager.ports.Allocate()
 	if err != nil {
 		cleanup()
 		return err
 	}
+
 	call.mu.Lock()
 	call.LocalRTPPort = port
 	call.mu.Unlock()
-	// --------------------
+
 	// Start RTP
-	// --------------------
 	if err := call.StartRTP(s.config.ListenIP); err != nil {
 		cleanup()
 		return err
 	}
-	// --------------------
+
 	// Start Audio
-	// --------------------
 	if err := call.StartAudio(s.configToAudioConfig()); err != nil {
 		cleanup()
 		return err
 	}
-	// --------------------
+
 	// VAD + Segmenter
-	// --------------------
 	vad := NewEnergyVAD(500)
+
 	segmenter := NewAudioSegmenter(
 		vad,
 		s.configToAudioConfig(),
 	)
+
 	call.mu.Lock()
 	call.VAD = vad
 	call.Segmenter = segmenter
 	call.mu.Unlock()
-	// --------------------
+
+	// Start Session
+	if err := session.Start(); err != nil {
+		cleanup()
+		return err
+	}
+
+	// Start RTP receive → STT
+	call.StartReceiveLoop()
+
 	// SDP Answer
-	// --------------------
 	body := BuildSDPAnswer(call, s.config)
 	// --------------------
 	// 200 OK
@@ -2297,7 +2663,6 @@ func (s *AudioSegmenter) Reset() {
 func NewLLMEngine(
 	llm neurocall.LLM,
 ) *LLMEngine {
-
 	return &LLMEngine{
 		llm: llm,
 	}
@@ -2307,24 +2672,20 @@ func (e *LLMEngine) SetLLM(
 ) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-
 	e.llm = llm
 }
 func (e *LLMEngine) Chat(
 	messages []neurocall.Message,
 ) (neurocall.Message, error) {
-
 	e.mu.RLock()
 	llm := e.llm
 	e.mu.RUnlock()
-
 	if llm == nil {
 		return neurocall.Message{},
 			fmt.Errorf(
 				"LLM is not configured",
 			)
 	}
-
 	return llm.Chat(messages)
 }
 
@@ -2454,37 +2815,26 @@ func (c *Conversation) SetMemory(
 	c.memory = memory
 }
 
+// func (c *Conversation) GenerateResponse(
+//     fn func() error,
+// ) error {
+//     c.responseMu.Lock()
+//     defer c.responseMu.Unlock()
+
+//	    return fn()
+//	}
+//
 // Conversation
 // ConversationEngine
 func NewConversationEngine(
 	llm *LLMEngine,
 	bus *EventBus,
 ) *ConversationEngine {
-	engine := &ConversationEngine{
+	return &ConversationEngine{
 		llm:           llm,
 		bus:           bus,
 		conversations: make(map[string]*Conversation),
 	}
-	if bus != nil {
-		bus.Subscribe(
-			EventTranscript,
-			func(event Event) {
-				data, ok := event.Data.(TranscriptEvent)
-				if !ok {
-					return
-				}
-				go func() {
-					if err := engine.HandleTranscript(data); err != nil {
-						bus.Publish(Event{
-							Name: EventLLMError,
-							Data: err,
-						})
-					}
-				}()
-			},
-		)
-	}
-	return engine
 }
 func (e *ConversationEngine) GetOrCreate(
 	callID string,
@@ -2987,13 +3337,10 @@ func (s *RTPSession) ReadOrdered() (
 	RTPReadResult,
 	error,
 ) {
-
 	for {
-
 		packet, ready := s.jitter.Pop()
 
 		if ready {
-
 			if packet == nil {
 				return RTPReadResult{
 					Lost: true,
@@ -3005,8 +3352,12 @@ func (s *RTPSession) ReadOrdered() (
 			}, nil
 		}
 
-		packet, err := s.Read()
+		if s.jitter.HasPackets() {
+			time.Sleep(1 * time.Millisecond)
+			continue
+		}
 
+		packet, err := s.Read()
 		if err != nil {
 			return RTPReadResult{}, err
 		}
@@ -3015,6 +3366,11 @@ func (s *RTPSession) ReadOrdered() (
 			continue
 		}
 	}
+}
+func (b *RTPJitterBuffer) HasPackets() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.packets) > 0
 }
 func (s *RTPSession) Close() error {
 	s.mu.Lock()
@@ -3115,10 +3471,12 @@ func (s *RTPSession) Stats() RTPStats {
 }
 func (s *RTPSession) ResetStats() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.stats = RTPStats{}
-	// s.sequenceTracker.Reset()
+	tracker := s.sequenceTracker
+	s.mu.Unlock()
+	if tracker != nil {
+		tracker.Reset()
+	}
 }
 func (s *RTPSession) Read() (*RTPPacket, error) {
 	s.mu.RLock()
@@ -3159,19 +3517,12 @@ func (s *RTPSession) Read() (*RTPPacket, error) {
 
 		return nil, err
 	}
-
+	s.sequenceTracker.Update(packet.Header.SequenceNumber)
+	trackerStats := s.sequenceTracker.Stats()
 	s.mu.Lock()
-
 	s.stats.ReceivedPackets++
-
-	s.sequenceTracker.Update(
-		packet.Header.SequenceNumber,
-	)
-
-	s.stats.LostPackets += s.sequenceTracker.lost
-
+	s.stats.LostPackets = trackerStats.LostPackets
 	s.mu.Unlock()
-
 	return packet, nil
 }
 func (s *RTPSession) Write(
@@ -3249,7 +3600,9 @@ func (s *RTPSession) WritePCMRealtime(
 	if len(pcm) == 0 {
 		return neurocall.ErrInvalidAudio
 	}
-
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.mu.RLock()
 
 	interval := s.writeInterval
@@ -3368,6 +3721,11 @@ func (t *RTPSequenceTracker) Stats() RTPStats {
 		LastSequence: t.last,
 		HasSequence:  t.started,
 	}
+}
+func (t *RTPSequenceTracker) Reset() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	*t = RTPSequenceTracker{}
 }
 
 // RTPSequenceTracker
@@ -3519,92 +3877,398 @@ func (f *FakeSTT) Transcribe(
 }
 
 // FakeSTT
+// AudioReceiveConfig
+func DefaultAudioReceiveConfig() AudioReceiveConfig {
+	return AudioReceiveConfig{
+		SampleRate: 8000,
+		Channels:   1,
+		FrameSize:  160,
+	}
+}
 
-// func (b *RTPJitterBuffer) dropOldestLocked() {
-// 	if len(b.packets) == 0 {
-// 		return
-// 	}
+// AudioReceiveConfig
+// AudioProcessor
+func NewAudioProcessor(
+	vad neurocall.VAD,
+	segmenter neurocall.SpeechSegmenter,
+	worker *STTWorker,
+	bus *EventBus,
+) (*AudioProcessor, error) {
 
-// 	var oldest uint16
-// 	var oldestDistance uint16
-// 	first := true
+	if vad == nil {
+		return nil, fmt.Errorf("VAD is nil")
+	}
 
-// 	for seq := range b.packets {
-// 		distance := uint16(seq - b.next)
+	if segmenter == nil {
+		return nil, fmt.Errorf("speech segmenter is nil")
+	}
 
-// 		if first || distance > oldestDistance {
-// 			oldest = seq
-// 			oldestDistance = distance
-// 			first = false
-// 		}
-// 	}
+	if worker == nil {
+		return nil, fmt.Errorf("STT worker is nil")
+	}
 
-// 	delete(b.packets, oldest)
-// }
-// func (b *RTPJitterBuffer) Push(packet *RTPPacket) error {
-// 	if packet == nil {
-// 		return errInvalidRTPPacket
-// 	}
+	if bus == nil {
+		return nil, fmt.Errorf("event bus is nil")
+	}
 
-// 	b.mu.Lock()
-// 	defer b.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
 
-// 	seq := packet.Header.SequenceNumber
+	return &AudioProcessor{
+		vad:       vad,
+		segmenter: segmenter,
+		worker:    worker,
+		bus:       bus,
+		ctx:       ctx,
+		cancel:    cancel,
+	}, nil
+}
+func (p *AudioProcessor) Start() error {
+	if p == nil {
+		return neurocall.ErrCallClosed
+	}
 
-// 	if !b.started {
-// 		b.started = true
-// 		b.next = seq
-// 	}
+	p.mu.Lock()
 
-// 	// Duplicate.
-// 	if _, exists := b.packets[seq]; exists {
-// 		return nil
-// 	}
+	if p.closed {
+		p.mu.Unlock()
+		return neurocall.ErrCallClosed
+	}
 
-// 	b.packets[seq] = jitterPacket{
-// 		packet:     packet,
-// 		receivedAt: time.Now(),
-// 	}
+	if p.running {
+		p.mu.Unlock()
+		return nil
+	}
 
-// 	if len(b.packets) > b.maxPackets {
-// 		b.dropOldestLocked()
-// 	}
+	p.running = true
 
-//		return nil
-//	}
-// func (b *RTPJitterBuffer) Push(packet *RTPPacket) error {
-// 	if packet == nil {
-// 		return errInvalidRTPPacket
-// 	}
+	worker := p.worker
 
-// 	b.mu.Lock()
-// 	defer b.mu.Unlock()
+	p.mu.Unlock()
 
-// 	seq := packet.Header.SequenceNumber
+	if worker != nil {
+		if err := worker.Start(); err != nil {
+			p.mu.Lock()
+			p.running = false
+			p.mu.Unlock()
 
-// 	if _, exists := b.packets[seq]; exists {
-// 		return nil
-// 	}
+			return err
+		}
+	}
 
-// 	b.packets[seq] = jitterPacket{
-// 		packet:     packet,
-// 		receivedAt: time.Now(),
-// 	}
+	return nil
+}
+func (p *AudioProcessor) Stop() error {
+	if p == nil {
+		return nil
+	}
 
-// 	if !b.started {
-// 		b.started = true
-// 		b.next = seq
-// 	} else {
-// 		// If this packet is older than the current next,
-// 		// move next backward to allow reordering.
-// 		if seqDistance(seq, b.next) > 0x8000 {
-// 			b.next = seq
-// 		}
-// 	}
+	p.mu.Lock()
 
-// 	if len(b.packets) > b.maxPackets {
-// 		b.dropOldestLocked()
-// 	}
+	if p.closed {
+		p.mu.Unlock()
+		return nil
+	}
 
-// 	return nil
-// }
+	p.closed = true
+	p.running = false
+
+	cancel := p.cancel
+	worker := p.worker
+
+	p.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+
+	if worker != nil {
+		worker.Stop()
+	}
+
+	return nil
+}
+func (p *AudioProcessor) Running() bool {
+	if p == nil {
+		return false
+	}
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.running && !p.closed
+}
+func (p *AudioProcessor) Closed() bool {
+	if p == nil {
+		return true
+	}
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.closed
+}
+func (p *AudioProcessor) Context() context.Context {
+	if p == nil {
+		return context.Background()
+	}
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.ctx
+}
+func (p *AudioProcessor) SetVAD(
+	vad neurocall.VAD,
+) error {
+
+	if vad == nil {
+		return fmt.Errorf("VAD is nil")
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.closed {
+		return neurocall.ErrCallClosed
+	}
+
+	p.vad = vad
+
+	return nil
+}
+func (p *AudioProcessor) SetSegmenter(
+	segmenter neurocall.SpeechSegmenter,
+) error {
+
+	if segmenter == nil {
+		return fmt.Errorf("speech segmenter is nil")
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.closed {
+		return neurocall.ErrCallClosed
+	}
+
+	p.segmenter = segmenter
+
+	return nil
+}
+func (p *AudioProcessor) SetWorker(
+	worker *STTWorker,
+) error {
+
+	if worker == nil {
+		return fmt.Errorf("STT worker is nil")
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.closed {
+		return neurocall.ErrCallClosed
+	}
+
+	p.worker = worker
+
+	return nil
+}
+func (p *AudioProcessor) VAD() neurocall.VAD {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.vad
+}
+func (p *AudioProcessor) Segmenter() neurocall.SpeechSegmenter {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.segmenter
+}
+func (p *AudioProcessor) Worker() *STTWorker {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.worker
+}
+func (p *AudioProcessor) ProcessFrame(
+	frame neurocall.AudioFrame,
+) error {
+
+	if p == nil {
+		return neurocall.ErrCallClosed
+	}
+
+	if len(frame.Data) == 0 {
+		return neurocall.ErrInvalidAudio
+	}
+
+	if frame.SampleRate <= 0 {
+		return neurocall.ErrInvalidAudio
+	}
+
+	if frame.Channels <= 0 {
+		return neurocall.ErrInvalidAudio
+	}
+
+	p.mu.RLock()
+
+	if p.closed || !p.running {
+		p.mu.RUnlock()
+		return neurocall.ErrCallClosed
+	}
+
+	ctx := p.ctx
+	vad := p.vad
+	segmenter := p.segmenter
+	worker := p.worker
+
+	p.mu.RUnlock()
+
+	if vad == nil {
+		return fmt.Errorf("VAD is not configured")
+	}
+
+	if segmenter == nil {
+		return fmt.Errorf("speech segmenter is not configured")
+	}
+
+	if worker == nil {
+		return fmt.Errorf("STT worker is not configured")
+	}
+
+	speech, err := vad.Process(ctx, frame)
+	if err != nil {
+		p.publishVADError(err)
+		return err
+	}
+
+	if !speech {
+		return nil
+	}
+
+	segments, err := segmenter.Process(ctx, frame)
+	if err != nil {
+		p.publishSegmenterError(err)
+		return err
+	}
+
+	for _, segment := range segments {
+		if len(segment.Data) == 0 {
+			continue
+		}
+
+		if err := worker.Push(segment); err != nil {
+			return err
+		}
+
+		p.publishSegment(segment)
+	}
+
+	return nil
+}
+func (p *AudioProcessor) Flush() error {
+	if p == nil {
+		return neurocall.ErrCallClosed
+	}
+
+	p.mu.RLock()
+
+	if p.closed {
+		p.mu.RUnlock()
+		return neurocall.ErrCallClosed
+	}
+
+	ctx := p.ctx
+	segmenter := p.segmenter
+	worker := p.worker
+
+	p.mu.RUnlock()
+
+	if segmenter == nil {
+		return fmt.Errorf("speech segmenter is not configured")
+	}
+
+	if worker == nil {
+		return fmt.Errorf("STT worker is not configured")
+	}
+
+	segments, err := segmenter.Flush(ctx)
+	if err != nil {
+		p.publishSegmenterError(err)
+		return err
+	}
+
+	for _, segment := range segments {
+		if len(segment.Data) == 0 {
+			continue
+		}
+
+		if err := worker.Push(segment); err != nil {
+			return err
+		}
+
+		p.publishSegment(segment)
+	}
+
+	return nil
+}
+func (p *AudioProcessor) ResetSegmenter() error {
+	if p == nil {
+		return neurocall.ErrCallClosed
+	}
+
+	p.mu.RLock()
+
+	if p.closed {
+		p.mu.RUnlock()
+		return neurocall.ErrCallClosed
+	}
+
+	segmenter := p.segmenter
+
+	p.mu.RUnlock()
+
+	if segmenter == nil {
+		return fmt.Errorf("speech segmenter is not configured")
+	}
+
+	segmenter.Reset()
+
+	return nil
+}
+func (p *AudioProcessor) publishSegment(
+	segment neurocall.AudioSegment,
+) {
+	if p == nil || p.bus == nil {
+		return
+	}
+	p.bus.Publish(Event{
+		Name: EventAudioSegment,
+		Data: segment,
+	})
+}
+func (p *AudioProcessor) publishVADError(
+	err error,
+) {
+	if p == nil || p.bus == nil {
+		return
+	}
+	p.bus.Publish(Event{
+		Name: EventAudioProcessorError,
+		Data: err,
+	})
+}
+func (p *AudioProcessor) publishSegmenterError(
+	err error,
+) {
+	if p == nil || p.bus == nil {
+		return
+	}
+
+	p.bus.Publish(Event{
+		Name: EventAudioProcessorError,
+		Data: err,
+	})
+}

@@ -486,3 +486,13 @@ func concealPCM(
 func seqLess(a, b uint16) bool {
 	return int16(a-b) < 0
 }
+func buildAudioFrame(
+	timestamp uint32,
+	cfg AudioReceiveConfig,
+) neurocall.AudioFrame {
+	return neurocall.AudioFrame{
+		Timestamp:  timestamp,
+		SampleRate: cfg.SampleRate,
+		Channels:   cfg.Channels,
+	}
+}
