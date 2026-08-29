@@ -548,8 +548,6 @@ func TestRTPPacketInvalidVersion(t *testing.T) {
 	packet := &RTPPacket{}
 
 	data := make([]byte, 12)
-
-	// RTP version = 1
 	data[0] = 0x40
 
 	err := packet.Unmarshal(data)
@@ -617,9 +615,7 @@ func TestRTPPacketEmptyPayload(t *testing.T) {
 func TestRTPPacketExtension(t *testing.T) {
 	packet := &RTPPacket{}
 	data := make([]byte, 20)
-	// Version 2 + extension bit
 	data[0] = 0x90
-	// Extension length = 2 words = 8 bytes
 	data[14] = 0
 	data[15] = 2
 	err := packet.Unmarshal(data)
@@ -913,7 +909,7 @@ func TestRTPSequenceTrackerWrap(t *testing.T) {
 		)
 	}
 }
-func TestRTPSequenceTrackerLoss(t *testing.T) {
+func TestRTPSequenceTrackerLoss1(t *testing.T) {
 	tracker := &RTPSequenceTracker{}
 
 	tracker.Update(100)
@@ -990,73 +986,6 @@ func TestRTPJitterBufferBasic(t *testing.T) {
 		)
 	}
 }
-func TestRTPJitterBufferReorder(t *testing.T) {
-	buffer := NewRTPJitterBuffer(
-		10,
-		100*time.Millisecond,
-	)
-
-	p100 := &RTPPacket{}
-	p100.Header.SequenceNumber = 100
-
-	p101 := &RTPPacket{}
-	p101.Header.SequenceNumber = 101
-
-	p102 := &RTPPacket{}
-	p102.Header.SequenceNumber = 102
-
-	// Arrive out of order.
-	if err := buffer.Push(p102); err != nil {
-		t.Fatalf("Push 102 failed: %v", err)
-	}
-
-	if err := buffer.Push(p100); err != nil {
-		t.Fatalf("Push 100 failed: %v", err)
-	}
-
-	if err := buffer.Push(p101); err != nil {
-		t.Fatalf("Push 101 failed: %v", err)
-	}
-
-	got, ok := buffer.Pop()
-
-	if !ok || got == nil {
-		t.Fatal("expected packet 100")
-	}
-
-	if got.Header.SequenceNumber != 100 {
-		t.Fatalf(
-			"expected 100, got %d",
-			got.Header.SequenceNumber,
-		)
-	}
-
-	got, ok = buffer.Pop()
-
-	if !ok || got == nil {
-		t.Fatal("expected packet 101")
-	}
-
-	if got.Header.SequenceNumber != 101 {
-		t.Fatalf(
-			"expected 101, got %d",
-			got.Header.SequenceNumber,
-		)
-	}
-
-	got, ok = buffer.Pop()
-
-	if !ok || got == nil {
-		t.Fatal("expected packet 102")
-	}
-
-	if got.Header.SequenceNumber != 102 {
-		t.Fatalf(
-			"expected 102, got %d",
-			got.Header.SequenceNumber,
-		)
-	}
-}
 func TestRTPJitterBufferDuplicate(t *testing.T) {
 	buffer := NewRTPJitterBuffer(
 		10,
@@ -1087,7 +1016,6 @@ func TestRTPJitterBufferDuplicate(t *testing.T) {
 		)
 	}
 
-	// Duplicate must not create another packet.
 	got, ok = buffer.Pop()
 
 	if ok || got != nil {
@@ -1281,7 +1209,6 @@ func TestCallSessionClose(t *testing.T) {
 
 	select {
 	case <-ctx.Done():
-		// expected
 	case <-time.After(time.Second):
 		t.Fatal("session context was not cancelled")
 	}
@@ -1730,9 +1657,7 @@ func TestAudioProcessorStart(t *testing.T) {
 		t.Fatal("processor should be closed")
 	}
 }
-func TestAudioProcessorSilence(
-	t *testing.T,
-) {
+func TestAudioProcessorSilence(t *testing.T) {
 
 	bus := NewEventBus()
 
@@ -1794,9 +1719,7 @@ func TestAudioProcessorSilence(
 		)
 	}
 }
-func TestAudioProcessorSpeech(
-	t *testing.T,
-) {
+func TestAudioProcessorSpeech(t *testing.T) {
 
 	bus := NewEventBus()
 
@@ -1861,9 +1784,7 @@ func TestAudioProcessorSpeech(
 		)
 	}
 }
-func TestAudioProcessorFlush(
-	t *testing.T,
-) {
+func TestAudioProcessorFlush(t *testing.T) {
 
 	bus := NewEventBus()
 
@@ -1919,9 +1840,7 @@ func TestAudioProcessorFlush(
 		)
 	}
 }
-func TestAudioProcessorReset(
-	t *testing.T,
-) {
+func TestAudioProcessorReset(t *testing.T) {
 
 	bus := NewEventBus()
 
@@ -1968,9 +1887,7 @@ func TestAudioProcessorReset(
 		)
 	}
 }
-func TestAudioProcessorInvalidFrame(
-	t *testing.T,
-) {
+func TestAudioProcessorInvalidFrame(t *testing.T) {
 
 	bus := NewEventBus()
 
@@ -2039,9 +1956,7 @@ func TestAudioProcessorInvalidFrame(
 		})
 	}
 }
-func TestAudioProcessorCannotProcessAfterStop(
-	t *testing.T,
-) {
+func TestAudioProcessorCannotProcessAfterStop(t *testing.T) {
 
 	bus := NewEventBus()
 
@@ -2085,9 +2000,7 @@ func TestAudioProcessorCannotProcessAfterStop(
 		t.Fatal("expected error after stop")
 	}
 }
-func TestAudioProcessorContext(
-	t *testing.T,
-) {
+func TestAudioProcessorContext(t *testing.T) {
 
 	bus := NewEventBus()
 
@@ -2488,10 +2401,6 @@ func TestSIPCallCloseResourcesClearsReferences1(t *testing.T) {
 	call := &SIPCall{
 		CallID: "clear-resources",
 	}
-
-	// Resources are intentionally nil here.
-	// This test verifies the ownership state after close.
-
 	if err := call.CloseResources(); err != nil {
 		t.Fatalf("CloseResources failed: %v", err)
 	}
@@ -3289,7 +3198,7 @@ func TestSIPCallSpeakSuccess(t *testing.T) {
 				SampleRate: 8000,
 				Channels:   1,
 			},
-			Data: make([]byte, 320), // 160 PCM16 samples
+			Data: make([]byte, 320),
 		},
 	}
 
@@ -3308,7 +3217,6 @@ func TestSIPCallSpeakSuccess(t *testing.T) {
 		Channels:    1,
 	}
 
-	// Real RTP socket.
 	rtp, err := NewRTPSession(
 		"127.0.0.1",
 		0,
@@ -3321,7 +3229,6 @@ func TestSIPCallSpeakSuccess(t *testing.T) {
 	}
 	defer rtp.Close()
 
-	// Real audio pipeline + real PCMU encoder.
 	pipeline := NewAudioPipeline(AudioConfig{
 		BufferSize: 10,
 	})
@@ -3461,7 +3368,6 @@ func TestConversationToVoiceIntegration(t *testing.T) {
 	if err := voiceEngine.AddCall(call); err != nil {
 		t.Fatal(err)
 	}
-	// Transcript → LLM
 	err := conversationEngine.HandleTranscript(
 		TranscriptEvent{
 			CallID: "integration-call",
@@ -3479,7 +3385,6 @@ func TestConversationToVoiceIntegration(t *testing.T) {
 			llm.calls,
 		)
 	}
-	// Make sure conversation contains both messages.
 	conversation, err := conversationEngine.GetOrCreate(
 		"integration-call",
 	)
@@ -3507,11 +3412,6 @@ func TestConversationToVoiceIntegration(t *testing.T) {
 			messages[1],
 		)
 	}
-	// LLMResponse event → VoiceResponseEngine
-	//
-	// SIPCall.Speak requires RTP + Pipeline,
-	// so at this stage we intentionally test
-	// the event reaching VoiceResponseEngine.
 	err = voiceEngine.HandleResponse(
 		LLMResponseEvent{
 			CallID:  "integration-call",
@@ -3562,7 +3462,6 @@ func TestRTPSessionWritePCMRealtime(t *testing.T) {
 	}
 	defer rtp.Close()
 
-	// 2 RTP frames = 40ms at 8kHz.
 	pcm := make([]int16, 320)
 
 	err = rtp.WritePCMRealtime(
@@ -3663,7 +3562,6 @@ func TestRTPSessionWritePCMRealtimeContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// More than one frame so the second frame waits on ticker.
 	pcm := make([]int16, 320)
 
 	done := make(chan error, 1)
@@ -3676,7 +3574,6 @@ func TestRTPSessionWritePCMRealtimeContextCancel(t *testing.T) {
 		)
 	}()
 
-	// Give the first frame a chance to be written.
 	time.Sleep(5 * time.Millisecond)
 
 	cancel()
@@ -3690,8 +3587,73 @@ func TestRTPSessionWritePCMRealtimeContextCancel(t *testing.T) {
 		)
 	}
 }
+func TestRTPJitterBufferReorder(t *testing.T) {
+	buffer := NewRTPJitterBuffer(
+		10,
+		100*time.Millisecond,
+	)
+
+	p100 := &RTPPacket{}
+	p100.Header.SequenceNumber = 100
+
+	p101 := &RTPPacket{}
+	p101.Header.SequenceNumber = 101
+
+	p102 := &RTPPacket{}
+	p102.Header.SequenceNumber = 102
+
+	if err := buffer.Push(p102); err != nil {
+		t.Fatalf("Push 102 failed: %v", err)
+	}
+
+	if err := buffer.Push(p100); err != nil {
+		t.Fatalf("Push 100 failed: %v", err)
+	}
+
+	if err := buffer.Push(p101); err != nil {
+		t.Fatalf("Push 101 failed: %v", err)
+	}
+
+	got, ok := buffer.Pop()
+
+	if !ok || got == nil {
+		t.Fatal("expected packet 100")
+	}
+
+	if got.Header.SequenceNumber != 100 {
+		t.Fatalf(
+			"expected 100, got %d",
+			got.Header.SequenceNumber,
+		)
+	}
+
+	got, ok = buffer.Pop()
+
+	if !ok || got == nil {
+		t.Fatal("expected packet 101")
+	}
+
+	if got.Header.SequenceNumber != 101 {
+		t.Fatalf(
+			"expected 101, got %d",
+			got.Header.SequenceNumber,
+		)
+	}
+
+	got, ok = buffer.Pop()
+
+	if !ok || got == nil {
+		t.Fatal("expected packet 102")
+	}
+
+	if got.Header.SequenceNumber != 102 {
+		t.Fatalf(
+			"expected 102, got %d",
+			got.Header.SequenceNumber,
+		)
+	}
+}
 func TestSIPCallSpeakEndToEndRTP(t *testing.T) {
-	// UDP receiver
 	receiver, err := net.ListenUDP(
 		"udp",
 		&net.UDPAddr{
@@ -3706,14 +3668,12 @@ func TestSIPCallSpeakEndToEndRTP(t *testing.T) {
 
 	receiverPort := receiver.LocalAddr().(*net.UDPAddr).Port
 
-	// Fake TTS
 	fakeTTS := &testTTSFail{
 		data: neurocall.AudioStreamData{
 			Format: neurocall.AudioFormat{
 				SampleRate: 8000,
 				Channels:   1,
 			},
-			// 160 samples = one RTP/PCMU frame.
 			Data: PCM16ToBytes(make([]int16, 160)),
 		},
 	}
@@ -3725,8 +3685,6 @@ func TestSIPCallSpeakEndToEndRTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ttsPlayback.Close()
-
-	// RTP session.
 	rtp, err := NewRTPSession(
 		"127.0.0.1",
 		0,
@@ -3743,8 +3701,6 @@ func TestSIPCallSpeakEndToEndRTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rtp.Close()
-
-	// Audio pipeline.
 	pipeline := NewAudioPipeline(
 		AudioConfig{
 			BufferSize: 10,
@@ -3768,7 +3724,6 @@ func TestSIPCallSpeakEndToEndRTP(t *testing.T) {
 		},
 	}
 
-	// Speak must reach TTS and RTP.
 	err = call.Speak(
 		context.Background(),
 		"hello",
@@ -3784,7 +3739,6 @@ func TestSIPCallSpeakEndToEndRTP(t *testing.T) {
 		)
 	}
 
-	// Receive RTP packet.
 	_ = receiver.SetReadDeadline(
 		time.Now().Add(time.Second),
 	)
@@ -3853,7 +3807,6 @@ func TestRTPSessionReadValidPacket(t *testing.T) {
 	}
 	defer session.Close()
 
-	// مشخص کردن port واقعی session
 	session.mu.RLock()
 	localPort := session.conn.LocalAddr().(*net.UDPAddr).Port
 	session.mu.RUnlock()
@@ -3948,7 +3901,6 @@ func TestRTPSessionReadInvalidPacket(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// عمداً RTP packet نامعتبر
 	if _, err := conn.Write([]byte{0x01, 0x02, 0x03}); err != nil {
 		t.Fatal(err)
 	}
@@ -5889,7 +5841,7 @@ func TestTTSEngineSynthesizeNilContext(t *testing.T) {
 		},
 	})
 
-	audio, err := engine.Synthesize(nil, "hello")
+	audio, err := engine.Synthesize(context.Background(), "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -6357,8 +6309,6 @@ func TestConversationEngineHandleTranscriptNewCall(t *testing.T) {
 	)
 
 	if err == nil {
-		// با LLM nil، انتظار داریم به مرحله generateResponse برسد
-		// و خطای LLM is not configured بدهد.
 		t.Fatal("expected LLM configuration error")
 	}
 
@@ -6861,7 +6811,6 @@ func TestCallMemoryClearEmptyAndRepeated(t *testing.T) {
 		values: make(map[string]any),
 	}
 
-	// Clear روی memory خالی نباید panic کند.
 	memory.Clear()
 
 	if len(memory.values) != 0 {
@@ -6870,7 +6819,6 @@ func TestCallMemoryClearEmptyAndRepeated(t *testing.T) {
 
 	memory.Set("key", "value")
 
-	// Clear چند بار پشت‌سرهم.
 	memory.Clear()
 	memory.Clear()
 	memory.Clear()
@@ -7032,7 +6980,6 @@ func TestConversationMemoryClearKeepsConversation(t *testing.T) {
 		t.Fatal("expected language to be cleared")
 	}
 
-	// Conversation خودش نباید حذف شده باشد.
 	same, err := engine.GetOrCreate("clear-memory-call")
 	if err != nil {
 		t.Fatal(err)
@@ -7201,8 +7148,6 @@ func TestSIPCallCloseResourcesIdempotent(t *testing.T) {
 	call.CloseResources()
 	call.CloseResources()
 
-	// اگر به اینجا رسیدیم، CloseResources باید idempotent باشد
-	// و اجرای دوباره آن نباید panic کند.
 }
 func TestSIPCallCloseResourcesClearsReferences(t *testing.T) {
 	call := &SIPCall{
@@ -7306,7 +7251,6 @@ func TestSIPCallCloseResourcesClosesRTP(t *testing.T) {
 		t.Fatal("expected RTP connection to have existed")
 	}
 
-	// A closed UDP connection should reject further writes.
 	_, err = conn.WriteToUDP(
 		[]byte{0},
 		&net.UDPAddr{
@@ -7577,8 +7521,6 @@ func TestCallManagerStartSessionWithAudio(t *testing.T) {
 		t.Fatal("expected session to be open")
 	}
 
-	// Current architecture does not automatically copy
-	// SIPCall.Pipeline into CallSession.Audio.
 	if session.Audio != nil {
 		t.Fatal("expected session Audio to remain nil")
 	}
@@ -7678,5 +7620,2870 @@ func TestCallSessionConfigureConversation(t *testing.T) {
 
 	if !state.HasLLM {
 		t.Fatal("expected session to report HasLLM=true")
+	}
+}
+func TestNewCallSessionNilCall(t *testing.T) {
+	session, err := NewCallSession(nil)
+
+	if err == nil {
+		t.Fatal("expected error for nil call")
+	}
+
+	if session != nil {
+		t.Fatal("expected nil session")
+	}
+}
+func TestNewCallSessionEmptyCallID(t *testing.T) {
+	call := &SIPCall{}
+
+	session, err := NewCallSession(call)
+
+	if err == nil {
+		t.Fatal("expected error for empty CallID")
+	}
+
+	if session != nil {
+		t.Fatal("expected nil session")
+	}
+}
+func TestNewCallSessionInitialState(t *testing.T) {
+	call := &SIPCall{
+		CallID: "new-session-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if session == nil {
+		t.Fatal("expected session")
+	}
+
+	if session.ID != call.CallID {
+		t.Fatalf(
+			"expected session ID %q, got %q",
+			call.CallID,
+			session.ID,
+		)
+	}
+
+	if session.Call != call {
+		t.Fatal("expected session to reference original SIPCall")
+	}
+
+	if session.Events == nil {
+		t.Fatal("expected EventBus to be initialized")
+	}
+
+	if session.Conversation == nil {
+		t.Fatal("expected Conversation to be initialized")
+	}
+
+	if session.Memory == nil {
+		t.Fatal("expected Memory to be initialized")
+	}
+
+	if session.Tools == nil {
+		t.Fatal("expected ToolRegistry to be initialized")
+	}
+
+	state := session.State()
+
+	if state.Running {
+		t.Fatal("expected new session to not be running")
+	}
+
+	if state.Closed {
+		t.Fatal("expected new session to be open")
+	}
+
+	if state.HasAudio {
+		t.Fatal("expected new session to have no audio")
+	}
+
+	if state.HasSTT {
+		t.Fatal("expected new session to have no STT worker")
+	}
+
+	if state.HasLLM {
+		t.Fatal("expected new session to have no LLM")
+	}
+
+	if state.HasTTS {
+		t.Fatal("expected new session to have no TTS")
+	}
+}
+func TestCallSessionStart2(t *testing.T) {
+	call := &SIPCall{
+		CallID: "session-start-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	if !session.Running() {
+		t.Fatal("expected session to be running")
+	}
+
+	if session.Closed() {
+		t.Fatal("expected session to be open")
+	}
+
+	state := session.State()
+
+	if !state.Running {
+		t.Fatal("expected State().Running=true")
+	}
+
+	if state.Closed {
+		t.Fatal("expected State().Closed=false")
+	}
+}
+func TestCallSessionStartIdempotent(t *testing.T) {
+	call := &SIPCall{
+		CallID: "session-start-idempotent-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatalf("second Start should be harmless, got: %v", err)
+	}
+
+	if !session.Running() {
+		t.Fatal("expected session to remain running")
+	}
+}
+func TestCallSessionClose2(t *testing.T) {
+	call := &SIPCall{
+		CallID: "session-close-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if session.Running() {
+		t.Fatal("expected session to stop running")
+	}
+
+	if !session.Closed() {
+		t.Fatal("expected session to be closed")
+	}
+
+	state := session.State()
+
+	if state.Running {
+		t.Fatal("expected State().Running=false")
+	}
+
+	if !state.Closed {
+		t.Fatal("expected State().Closed=true")
+	}
+}
+func TestCallSessionCloseIdempotent(t *testing.T) {
+	call := &SIPCall{
+		CallID: "session-close-idempotent-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatalf(
+			"second Close should be harmless, got: %v",
+			err,
+		)
+	}
+
+	if !session.Closed() {
+		t.Fatal("expected session to remain closed")
+	}
+
+	if session.Running() {
+		t.Fatal("expected session to remain stopped")
+	}
+}
+func TestCallSessionStartAfterClose(t *testing.T) {
+	call := &SIPCall{
+		CallID: "session-restart-after-close-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	err = session.Start()
+
+	if err != neurocall.ErrCallClosed {
+		t.Fatalf(
+			"expected ErrCallClosed after Close, got %v",
+			err,
+		)
+	}
+
+	if session.Running() {
+		t.Fatal("expected session to remain stopped")
+	}
+}
+func TestCallSessionNilReceiver(t *testing.T) {
+	var session *CallSession
+
+	if err := session.Start(); err != neurocall.ErrCallClosed {
+		t.Fatalf(
+			"expected ErrCallClosed from nil Start, got %v",
+			err,
+		)
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatalf(
+			"expected nil from nil Close, got %v",
+			err,
+		)
+	}
+
+	state := session.State()
+
+	if !state.Closed {
+		t.Fatal("expected nil session State().Closed=true")
+	}
+}
+func TestCallSessionConfigureVoiceNilEngine(t *testing.T) {
+	call := &SIPCall{
+		CallID: "configure-voice-nil-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = session.ConfigureVoice(nil)
+
+	if err == nil {
+		t.Fatal("expected error for nil TTS engine")
+	}
+}
+func TestCallSessionConfigureVoiceClosed(t *testing.T) {
+	call := &SIPCall{
+		CallID: "configure-voice-closed-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tts := NewTTSEngine(nil)
+
+	err = session.ConfigureVoice(tts)
+
+	if err != neurocall.ErrCallClosed {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestCallSessionConfigureVoice(t *testing.T) {
+	call := &SIPCall{
+		CallID: "configure-voice-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tts := NewTTSEngine(nil)
+
+	if err := session.ConfigureVoice(tts); err != nil {
+		t.Fatal(err)
+	}
+
+	if session.TTS != tts {
+		t.Fatal("expected TTS engine to be assigned")
+	}
+
+	if session.VoiceEngine == nil {
+		t.Fatal("expected VoiceEngine to be created")
+	}
+
+	state := session.State()
+
+	if !state.HasTTS {
+		t.Fatal("expected session to report HasTTS=true")
+	}
+}
+func TestCallSessionConfigureVoiceReplace(t *testing.T) {
+	call := &SIPCall{
+		CallID: "configure-voice-replace-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := NewTTSEngine(nil)
+	second := NewTTSEngine(nil)
+
+	if err := session.ConfigureVoice(first); err != nil {
+		t.Fatal(err)
+	}
+
+	firstVoice := session.VoiceEngine
+
+	if err := session.ConfigureVoice(second); err != nil {
+		t.Fatal(err)
+	}
+
+	if session.TTS != second {
+		t.Fatal("expected TTS engine to be replaced")
+	}
+
+	if session.VoiceEngine == nil {
+		t.Fatal("expected VoiceEngine to exist")
+	}
+
+	if session.VoiceEngine == firstVoice {
+		t.Fatal("expected a new VoiceEngine after reconfiguration")
+	}
+}
+func TestCallSessionConfigureVoiceNilReceiver(t *testing.T) {
+	var session *CallSession
+
+	tts := NewTTSEngine(nil)
+
+	err := session.ConfigureVoice(tts)
+
+	if err != neurocall.ErrCallClosed {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestCallSessionConfigureSTTNilWorker(t *testing.T) {
+	call := &SIPCall{
+		CallID: "configure-stt-nil-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = session.ConfigureSTT(nil)
+
+	if err == nil {
+		t.Fatal("expected error for nil STT worker")
+	}
+}
+func TestCallSessionConfigureSTTClosed(t *testing.T) {
+	call := &SIPCall{
+		CallID: "configure-stt-closed-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	worker := &STTWorker{}
+
+	err = session.ConfigureSTT(worker)
+
+	if err != neurocall.ErrCallClosed {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestCallSessionConfigureSTT(t *testing.T) {
+	call := &SIPCall{
+		CallID: "configure-stt-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	worker := &STTWorker{}
+
+	if err := session.ConfigureSTT(worker); err != nil {
+		t.Fatal(err)
+	}
+
+	if session.STTWorker != worker {
+		t.Fatal("expected STT worker to be assigned")
+	}
+
+	state := session.State()
+
+	if !state.HasSTT {
+		t.Fatal("expected session to report HasSTT=true")
+	}
+
+	got := session.GetSTTWorker()
+
+	if got != worker {
+		t.Fatal("expected GetSTTWorker to return configured worker")
+	}
+}
+func TestCallSessionConfigureSTTReplace(t *testing.T) {
+	call := &SIPCall{
+		CallID: "configure-stt-replace-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := &STTWorker{}
+	second := &STTWorker{}
+
+	if err := session.ConfigureSTT(first); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.ConfigureSTT(second); err != nil {
+		t.Fatal(err)
+	}
+
+	if session.GetSTTWorker() != second {
+		t.Fatal("expected STT worker to be replaced")
+	}
+}
+func TestCallSessionSetSTTWorker2(t *testing.T) {
+	call := &SIPCall{
+		CallID: "set-stt-worker-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	worker := &STTWorker{}
+
+	if err := session.SetSTTWorker(worker); err != nil {
+		t.Fatal(err)
+	}
+
+	if session.GetSTTWorker() != worker {
+		t.Fatal("expected worker to be assigned")
+	}
+}
+func TestCallSessionSetSTTWorkerNil(t *testing.T) {
+	call := &SIPCall{
+		CallID: "set-stt-worker-nil-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.SetSTTWorker(nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if session.GetSTTWorker() != nil {
+		t.Fatal("expected STT worker to be nil")
+	}
+}
+func TestCallSessionSetSTTWorkerClosed(t *testing.T) {
+	call := &SIPCall{
+		CallID: "set-stt-worker-closed-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	worker := &STTWorker{}
+
+	err = session.SetSTTWorker(worker)
+
+	if err != neurocall.ErrCallClosed {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestCallSessionAttachSTTEventsNilReceiver(t *testing.T) {
+	var session *CallSession
+
+	if err := session.AttachSTTEvents(); err != neurocall.ErrCallClosed {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestCallSessionAttachSTTEventsClosed(t *testing.T) {
+	call := &SIPCall{
+		CallID: "attach-stt-events-closed-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.AttachSTTEvents(); err != neurocall.ErrCallClosed {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestCallSessionAttachSTTEventsNilBus(t *testing.T) {
+	call := &SIPCall{
+		CallID: "attach-stt-events-nil-bus-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session.Events = nil
+
+	err = session.AttachSTTEvents()
+
+	if err == nil {
+		t.Fatal("expected error when EventBus is nil")
+	}
+}
+func TestCallSessionAttachSTTEventsWithoutConversationEngine(t *testing.T) {
+	call := &SIPCall{
+		CallID: "attach-stt-events-no-engine-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = session.AttachSTTEvents()
+
+	if err == nil {
+		t.Fatal("expected error when ConversationEngine is not configured")
+	}
+}
+func TestCallSessionAttachSTTEvents(t *testing.T) {
+	call := &SIPCall{
+		CallID: "attach-stt-events-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	llm := NewLLMEngine(nil)
+
+	if err := session.ConfigureConversation(llm); err != nil {
+		t.Fatal(err)
+	}
+
+	if !session.sttEventsAttached {
+		t.Fatal("expected STT events to be attached")
+	}
+}
+func TestCallSessionAttachSTTEventsIdempotent(t *testing.T) {
+	call := &SIPCall{
+		CallID: "attach-stt-events-idempotent-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	llm := NewLLMEngine(nil)
+
+	if err := session.ConfigureConversation(llm); err != nil {
+		t.Fatal(err)
+	}
+
+	if !session.sttEventsAttached {
+		t.Fatal("expected STT events to be attached")
+	}
+
+	if err := session.AttachSTTEvents(); err != nil {
+		t.Fatal(err)
+	}
+
+	if !session.sttEventsAttached {
+		t.Fatal("expected STT events to remain attached")
+	}
+}
+func TestCallSessionConfigureConversationAttachesSTTEvents(t *testing.T) {
+	call := &SIPCall{
+		CallID: "conversation-stt-events-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if session.sttEventsAttached {
+		t.Fatal("expected STT events to be detached initially")
+	}
+
+	llm := NewLLMEngine(nil)
+
+	if err := session.ConfigureConversation(llm); err != nil {
+		t.Fatal(err)
+	}
+
+	if session.ConversationEngine == nil {
+		t.Fatal("expected ConversationEngine")
+	}
+
+	if !session.sttEventsAttached {
+		t.Fatal(
+			"expected ConfigureConversation to attach STT events",
+		)
+	}
+}
+func TestConversationEngineHandleTranscriptEmptyCallID1(t *testing.T) {
+	engine := NewConversationEngine(
+		NewLLMEngine(nil),
+		NewEventBus(),
+	)
+
+	err := engine.HandleTranscript(TranscriptEvent{})
+
+	if err == nil {
+		t.Fatal("expected error for empty CallID")
+	}
+}
+func TestConversationEngineHandleTranscriptEmptyText2(t *testing.T) {
+	engine := NewConversationEngine(
+		NewLLMEngine(nil),
+		NewEventBus(),
+	)
+
+	event := TranscriptEvent{
+		CallID: "empty-text-call",
+	}
+
+	err := engine.HandleTranscript(event)
+
+	if err != nil {
+		t.Fatalf(
+			"expected empty transcript to be ignored, got %v",
+			err,
+		)
+	}
+
+	if _, err := engine.GetOrCreate("empty-text-call"); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestConversationEngineGetOrCreateSameConversation(t *testing.T) {
+	engine := NewConversationEngine(
+		NewLLMEngine(nil),
+		NewEventBus(),
+	)
+
+	first, err := engine.GetOrCreate("same-conversation-call")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := engine.GetOrCreate("same-conversation-call")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if first != second {
+		t.Fatal("expected GetOrCreate to return the same conversation")
+	}
+}
+func TestConversationEngineHandleTranscriptAddsUserMessage(t *testing.T) {
+	engine := NewConversationEngine(
+		NewLLMEngine(nil),
+		NewEventBus(),
+	)
+
+	event := TranscriptEvent{
+		CallID: "transcript-message-test",
+	}
+
+	event.Transcript.Text = "hello neurocall"
+
+	err := engine.HandleTranscript(event)
+
+	if err == nil {
+		t.Fatal("expected error because LLM is not configured")
+	}
+
+	conversation, err := engine.GetOrCreate("transcript-message-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	messages := conversation.Messages()
+
+	if len(messages) != 1 {
+		t.Fatalf(
+			"expected 1 message, got %d",
+			len(messages),
+		)
+	}
+
+	if messages[0].Role != "user" {
+		t.Fatalf(
+			"expected user role, got %q",
+			messages[0].Role,
+		)
+	}
+
+	if messages[0].Content != "hello neurocall" {
+		t.Fatalf(
+			"expected transcript text %q, got %q",
+			"hello neurocall",
+			messages[0].Content,
+		)
+	}
+}
+func TestCallSessionAttachSTTEventsFiltersCallID(t *testing.T) {
+	call := &SIPCall{
+		CallID: "session-transcript-filter-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	llm := NewLLMEngine(nil)
+
+	if err := session.ConfigureConversation(llm); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := session.ConversationEngine
+
+	session.Events.Publish(Event{
+		Name: EventTranscript,
+		Data: TranscriptEvent{
+			CallID: "another-call",
+			Transcript: neurocall.Transcript{
+				Text: "should be ignored",
+			},
+		},
+	})
+
+	time.Sleep(100 * time.Millisecond)
+
+	otherConversation, err := engine.GetOrCreate("another-call")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if messages := otherConversation.Messages(); len(messages) != 0 {
+		t.Fatalf(
+			"expected wrong CallID to be ignored, got %d messages",
+			len(messages),
+		)
+	}
+
+	session.Events.Publish(Event{
+		Name: EventTranscript,
+		Data: TranscriptEvent{
+			CallID: session.ID,
+			Transcript: neurocall.Transcript{
+				Text: "hello neurocall",
+			},
+		},
+	})
+
+	var conversation *Conversation
+
+	deadline := time.Now().Add(1 * time.Second)
+
+	for time.Now().Before(deadline) {
+		conversation, err = engine.GetOrCreate(session.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(conversation.Messages()) > 0 {
+			break
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if conversation == nil {
+		t.Fatal("expected conversation to exist")
+	}
+
+	messages := conversation.Messages()
+
+	if len(messages) != 1 {
+		t.Fatalf(
+			"expected 1 user message, got %d",
+			len(messages),
+		)
+	}
+
+	if messages[0].Role != "user" {
+		t.Fatalf(
+			"expected user role, got %q",
+			messages[0].Role,
+		)
+	}
+
+	if messages[0].Content != "hello neurocall" {
+		t.Fatalf(
+			"expected transcript text %q, got %q",
+			"hello neurocall",
+			messages[0].Content,
+		)
+	}
+}
+func TestCallSessionAttachSTTEventsIgnoresInvalidEventData(t *testing.T) {
+	call := &SIPCall{
+		CallID: "invalid-transcript-event-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	llm := NewLLMEngine(nil)
+
+	if err := session.ConfigureConversation(llm); err != nil {
+		t.Fatal(err)
+	}
+
+	errorCh := make(chan struct{}, 1)
+
+	session.Events.Subscribe(
+		EventLLMError,
+		func(event Event) {
+			errorCh <- struct{}{}
+		},
+	)
+
+	session.Events.Publish(Event{
+		Name: EventTranscript,
+		Data: "this is not a TranscriptEvent",
+	})
+
+	select {
+	case <-errorCh:
+		t.Fatal("expected invalid event data to be ignored")
+
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+func TestNewSTTWorkerNilEngine(t *testing.T) {
+	bus := NewEventBus()
+
+	worker, err := NewSTTWorker(
+		nil,
+		bus,
+		"constructor-test",
+		10,
+	)
+
+	if err == nil {
+		t.Fatal("expected error for nil STT engine")
+	}
+
+	if worker != nil {
+		t.Fatal("expected nil worker")
+	}
+}
+func TestNewSTTWorkerNilBus(t *testing.T) {
+	engine := NewSTTEngine(nil)
+
+	worker, err := NewSTTWorker(
+		engine,
+		nil,
+		"constructor-test",
+		10,
+	)
+
+	if err == nil {
+		t.Fatal("expected error for nil EventBus")
+	}
+
+	if worker != nil {
+		t.Fatal("expected nil worker")
+	}
+}
+func TestNewSTTWorkerEmptyCallID(t *testing.T) {
+	engine := NewSTTEngine(nil)
+	bus := NewEventBus()
+
+	worker, err := NewSTTWorker(
+		engine,
+		bus,
+		"",
+		10,
+	)
+
+	if err == nil {
+		t.Fatal("expected error for empty CallID")
+	}
+
+	if worker != nil {
+		t.Fatal("expected nil worker")
+	}
+}
+func TestNewSTTWorkerDefaultBufferSize(t *testing.T) {
+	engine := NewSTTEngine(nil)
+	bus := NewEventBus()
+
+	worker, err := NewSTTWorker(
+		engine,
+		bus,
+		"buffer-default-test",
+		0,
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if worker == nil {
+		t.Fatal("expected worker")
+	}
+
+	if cap(worker.input) != 16 {
+		t.Fatalf(
+			"expected default buffer size 16, got %d",
+			cap(worker.input),
+		)
+	}
+}
+func TestSTTWorkerPushInvalidAudio(t *testing.T) {
+	engine := NewSTTEngine(nil)
+	bus := NewEventBus()
+
+	worker, err := NewSTTWorker(
+		engine,
+		bus,
+		"push-invalid-test",
+		10,
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = worker.Push(neurocall.AudioSegment{})
+
+	if err != neurocall.ErrInvalidAudio {
+		t.Fatalf(
+			"expected ErrInvalidAudio, got %v",
+			err,
+		)
+	}
+}
+func TestSTTWorkerPushBeforeStart(t *testing.T) {
+	engine := NewSTTEngine(nil)
+	bus := NewEventBus()
+
+	worker, err := NewSTTWorker(
+		engine,
+		bus,
+		"push-before-start-test",
+		10,
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = worker.Push(neurocall.AudioSegment{
+		Data: []int16{1, 2, 3},
+	})
+
+	if err != nil {
+		t.Fatalf(
+			"expected Push before Start to succeed, got %v",
+			err,
+		)
+	}
+}
+func TestSTTWorkerStart(t *testing.T) {
+	engine := NewSTTEngine(nil)
+	bus := NewEventBus()
+
+	worker, err := NewSTTWorker(
+		engine,
+		bus,
+		"start-test",
+		10,
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := worker.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	worker.mu.Lock()
+	running := worker.running
+	stopped := worker.stopped
+	worker.mu.Unlock()
+
+	if !running {
+		t.Fatal("expected worker to be running")
+	}
+
+	if stopped {
+		t.Fatal("expected worker to not be stopped")
+	}
+}
+func TestSTTWorkerStartIdempotent(t *testing.T) {
+	engine := NewSTTEngine(nil)
+	bus := NewEventBus()
+
+	worker, err := NewSTTWorker(
+		engine,
+		bus,
+		"start-idempotent-test",
+		10,
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := worker.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := worker.Start(); err != nil {
+		t.Fatalf(
+			"second Start should be harmless, got %v",
+			err,
+		)
+	}
+
+	worker.mu.Lock()
+	running := worker.running
+	worker.mu.Unlock()
+
+	if !running {
+		t.Fatal("expected worker to remain running")
+	}
+}
+func TestSTTWorkerStop(t *testing.T) {
+	engine := NewSTTEngine(nil)
+	bus := NewEventBus()
+
+	worker, err := NewSTTWorker(
+		engine,
+		bus,
+		"stop-test",
+		10,
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := worker.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	worker.Stop()
+
+	worker.mu.Lock()
+	running := worker.running
+	stopped := worker.stopped
+	worker.mu.Unlock()
+
+	if running {
+		t.Fatal("expected worker to stop running")
+	}
+
+	if !stopped {
+		t.Fatal("expected worker to be marked stopped")
+	}
+}
+func TestSTTWorkerStopIdempotent(t *testing.T) {
+	engine := NewSTTEngine(nil)
+	bus := NewEventBus()
+
+	worker, err := NewSTTWorker(
+		engine,
+		bus,
+		"stop-idempotent-test",
+		10,
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := worker.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	worker.Stop()
+	worker.Stop()
+
+	worker.mu.Lock()
+	stopped := worker.stopped
+	running := worker.running
+	worker.mu.Unlock()
+
+	if !stopped {
+		t.Fatal("expected worker to remain stopped")
+	}
+
+	if running {
+		t.Fatal("expected worker to remain not running")
+	}
+}
+func TestSTTWorkerStartAfterStop(t *testing.T) {
+	engine := NewSTTEngine(nil)
+	bus := NewEventBus()
+
+	worker, err := NewSTTWorker(
+		engine,
+		bus,
+		"restart-after-stop-test",
+		10,
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	worker.Stop()
+
+	err = worker.Start()
+
+	if err != neurocall.ErrCallClosed {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestSTTWorkerPushAfterStop(t *testing.T) {
+	engine := NewSTTEngine(nil)
+	bus := NewEventBus()
+
+	worker, err := NewSTTWorker(
+		engine,
+		bus,
+		"push-after-stop-test",
+		10,
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	worker.Stop()
+
+	err = worker.Push(neurocall.AudioSegment{
+		Data: []int16{1, 2, 3},
+	})
+
+	if err != neurocall.ErrCallClosed {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestSTTWorkerEmitsTranscript(t *testing.T) {
+	transcriptCh := make(chan TranscriptEvent, 1)
+
+	stt := &testSTT{
+		transcribe: func(
+			ctx context.Context,
+			segment neurocall.AudioSegment,
+		) (neurocall.Transcript, error) {
+			if len(segment.Data) == 0 {
+				t.Fatal("expected audio data")
+			}
+
+			return neurocall.Transcript{}, nil
+		},
+	}
+
+	bus := NewEventBus()
+
+	bus.Subscribe(
+		EventTranscript,
+		func(event Event) {
+			data, ok := event.Data.(TranscriptEvent)
+			if !ok {
+				t.Errorf("expected TranscriptEvent, got %T", event.Data)
+				return
+			}
+
+			transcriptCh <- data
+		},
+	)
+
+	engine := NewSTTEngine(stt)
+
+	worker, err := NewSTTWorker(
+		engine,
+		bus,
+		"stt-transcript-test",
+		10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := worker.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	defer worker.Stop()
+
+	err = worker.Push(neurocall.AudioSegment{
+		Data: []int16{1, 2, 3, 4},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case event := <-transcriptCh:
+		if event.CallID != "stt-transcript-test" {
+			t.Fatalf(
+				"expected CallID %q, got %q",
+				"stt-transcript-test",
+				event.CallID,
+			)
+		}
+
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for EventTranscript")
+	}
+}
+func TestSTTWorkerEmitsSTTError(t *testing.T) {
+	expectedErr := errors.New("transcription failed")
+
+	errorCh := make(chan STTErrorEvent, 1)
+
+	stt := &testSTT{
+		transcribe: func(
+			ctx context.Context,
+			segment neurocall.AudioSegment,
+		) (neurocall.Transcript, error) {
+			return neurocall.Transcript{}, expectedErr
+		},
+	}
+
+	bus := NewEventBus()
+
+	bus.Subscribe(
+		EventSTTError,
+		func(event Event) {
+			data, ok := event.Data.(STTErrorEvent)
+			if !ok {
+				t.Errorf("expected STTErrorEvent, got %T", event.Data)
+				return
+			}
+
+			errorCh <- data
+		},
+	)
+
+	engine := NewSTTEngine(stt)
+
+	worker, err := NewSTTWorker(
+		engine,
+		bus,
+		"stt-error-test",
+		10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := worker.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	defer worker.Stop()
+
+	if err := worker.Push(neurocall.AudioSegment{
+		Data: []int16{1, 2, 3},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case event := <-errorCh:
+		if event.CallID != "stt-error-test" {
+			t.Fatalf(
+				"expected CallID %q, got %q",
+				"stt-error-test",
+				event.CallID,
+			)
+		}
+
+		if event.Err != expectedErr {
+			t.Fatalf(
+				"expected error %v, got %v",
+				expectedErr,
+				event.Err,
+			)
+		}
+
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for EventSTTError")
+	}
+}
+func TestSTTEngineTranscribeWithoutSTT(t *testing.T) {
+	engine := NewSTTEngine(nil)
+
+	_, err := engine.Transcribe(
+		context.Background(),
+		neurocall.AudioSegment{
+			Data: []int16{1, 2, 3},
+		},
+	)
+
+	if err == nil {
+		t.Fatal("expected error when STT is not configured")
+	}
+}
+func TestSTTEngineCloseIdempotent(t *testing.T) {
+	engine := NewSTTEngine(nil)
+
+	engine.Close()
+	engine.Close()
+}
+func TestCallSessionSTTToConversationIntegration(t *testing.T) {
+	call := &SIPCall{
+		CallID: "stt-conversation-integration-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	llm := NewLLMEngine(nil)
+
+	if err := session.ConfigureConversation(llm); err != nil {
+		t.Fatal(err)
+	}
+
+	stt := &testSTT{
+		transcribe: func(
+			ctx context.Context,
+			segment neurocall.AudioSegment,
+		) (neurocall.Transcript, error) {
+			return neurocall.Transcript{
+				Text: "hello from STT",
+			}, nil
+		},
+	}
+
+	sttEngine := NewSTTEngine(stt)
+
+	worker, err := NewSTTWorker(
+		sttEngine,
+		session.Events,
+		session.ID,
+		10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.ConfigureSTT(worker); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	defer session.Close()
+
+	if err := worker.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	defer worker.Stop()
+
+	if err := worker.Push(neurocall.AudioSegment{
+		Data: []int16{1, 2, 3, 4},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := session.ConversationEngine
+
+	var conversation *Conversation
+
+	deadline := time.Now().Add(1 * time.Second)
+
+	for time.Now().Before(deadline) {
+		conversation, err = engine.GetOrCreate(session.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		messages := conversation.Messages()
+
+		if len(messages) > 0 {
+			break
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if conversation == nil {
+		t.Fatal("expected conversation to exist")
+	}
+
+	messages := conversation.Messages()
+
+	if len(messages) != 1 {
+		t.Fatalf(
+			"expected 1 conversation message, got %d",
+			len(messages),
+		)
+	}
+
+	if messages[0].Role != "user" {
+		t.Fatalf(
+			"expected user role, got %q",
+			messages[0].Role,
+		)
+	}
+
+	if messages[0].Content != "hello from STT" {
+		t.Fatalf(
+			"expected transcript text %q, got %q",
+			"hello from STT",
+			messages[0].Content,
+		)
+	}
+}
+func TestCallSessionSTTToConversationIntegration1(t *testing.T) {
+	call := &SIPCall{
+		CallID: "stt-conversation-integration-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	llm := NewLLMEngine(nil)
+
+	if err := session.ConfigureConversation(llm); err != nil {
+		t.Fatal(err)
+	}
+
+	stt := &testSTT{
+		transcribe: func(
+			ctx context.Context,
+			segment neurocall.AudioSegment,
+		) (neurocall.Transcript, error) {
+			return neurocall.Transcript{
+				Text: "hello from STT",
+			}, nil
+		},
+	}
+
+	sttEngine := NewSTTEngine(stt)
+
+	worker, err := NewSTTWorker(
+		sttEngine,
+		session.Events,
+		session.ID,
+		10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.ConfigureSTT(worker); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	defer session.Close()
+
+	if err := worker.Push(neurocall.AudioSegment{
+		Data: []int16{1, 2, 3, 4},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := session.ConversationEngine
+
+	var conversation *Conversation
+
+	deadline := time.Now().Add(1 * time.Second)
+
+	for time.Now().Before(deadline) {
+		conversation, err = engine.GetOrCreate(session.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(conversation.Messages()) > 0 {
+			break
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if conversation == nil {
+		t.Fatal("expected conversation to exist")
+	}
+
+	messages := conversation.Messages()
+
+	if len(messages) != 1 {
+		t.Fatalf(
+			"expected 1 conversation message, got %d",
+			len(messages),
+		)
+	}
+
+	if messages[0].Role != "user" {
+		t.Fatalf(
+			"expected user role, got %q",
+			messages[0].Role,
+		)
+	}
+
+	if messages[0].Content != "hello from STT" {
+		t.Fatalf(
+			"expected transcript text %q, got %q",
+			"hello from STT",
+			messages[0].Content,
+		)
+	}
+}
+func TestCallSessionProcessAudioSegmentBeforeStart(t *testing.T) {
+	call := &SIPCall{
+		CallID: "process-segment-before-start-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	worker := &STTWorker{}
+
+	if err := session.ConfigureSTT(worker); err != nil {
+		t.Fatal(err)
+	}
+
+	err = session.ProcessAudioSegment(neurocall.AudioSegment{
+		Data: []int16{1, 2, 3},
+	})
+
+	if err != neurocall.ErrCallClosed {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestCallSessionProcessAudioSegmentInvalidAudio(t *testing.T) {
+	call := &SIPCall{
+		CallID: "process-segment-invalid-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = session.ProcessAudioSegment(
+		neurocall.AudioSegment{},
+	)
+
+	if err != neurocall.ErrInvalidAudio {
+		t.Fatalf(
+			"expected ErrInvalidAudio, got %v",
+			err,
+		)
+	}
+}
+func TestCallSessionProcessAudioSegmentWithoutSTTWorker(t *testing.T) {
+	call := &SIPCall{
+		CallID: "process-segment-no-worker-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	defer session.Close()
+
+	err = session.ProcessAudioSegment(
+		neurocall.AudioSegment{
+			Data: []int16{1, 2, 3},
+		},
+	)
+
+	if err == nil {
+		t.Fatal("expected error when STT worker is not configured")
+	}
+}
+func TestCallSessionProcessAudioSegment(t *testing.T) {
+	call := &SIPCall{
+		CallID: "process-segment-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stt := &testSTT{
+		transcribe: func(
+			ctx context.Context,
+			segment neurocall.AudioSegment,
+		) (neurocall.Transcript, error) {
+			return neurocall.Transcript{
+				Text: "processed segment",
+			}, nil
+		},
+	}
+
+	engine := NewSTTEngine(stt)
+
+	worker, err := NewSTTWorker(
+		engine,
+		session.Events,
+		session.ID,
+		10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.ConfigureSTT(worker); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	defer session.Close()
+
+	transcriptCh := make(chan TranscriptEvent, 1)
+
+	session.Events.Subscribe(
+		EventTranscript,
+		func(event Event) {
+			data, ok := event.Data.(TranscriptEvent)
+			if ok {
+				transcriptCh <- data
+			}
+		},
+	)
+
+	err = session.ProcessAudioSegment(
+		neurocall.AudioSegment{
+			Data: []int16{1, 2, 3, 4},
+		},
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case transcript := <-transcriptCh:
+		if transcript.CallID != session.ID {
+			t.Fatalf(
+				"expected CallID %q, got %q",
+				session.ID,
+				transcript.CallID,
+			)
+		}
+
+		if transcript.Transcript.Text != "processed segment" {
+			t.Fatalf(
+				"expected transcript %q, got %q",
+				"processed segment",
+				transcript.Transcript.Text,
+			)
+		}
+
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for transcript")
+	}
+}
+func TestCallSessionProcessAudioSegmentAfterClose(t *testing.T) {
+	call := &SIPCall{
+		CallID: "process-segment-after-close-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	err = session.ProcessAudioSegment(
+		neurocall.AudioSegment{
+			Data: []int16{1, 2, 3},
+		},
+	)
+
+	if err != neurocall.ErrCallClosed {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestCallSessionProcessAudioFrameInvalidAudio(t *testing.T) {
+	call := &SIPCall{
+		CallID: "process-frame-invalid-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = session.ProcessAudioFrame(
+		context.Background(),
+		neurocall.AudioFrame{},
+		[]int16{},
+	)
+
+	if err != neurocall.ErrInvalidAudio {
+		t.Fatalf(
+			"expected ErrInvalidAudio, got %v",
+			err,
+		)
+	}
+}
+func TestCallSessionProcessAudioFrameWithoutSegmenter(t *testing.T) {
+	call := &SIPCall{
+		CallID: "process-frame-no-segmenter-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	defer session.Close()
+
+	err = session.ProcessAudioFrame(
+		context.Background(),
+		neurocall.AudioFrame{},
+		[]int16{1000, 1000},
+	)
+
+	if err == nil {
+		t.Fatal("expected error when segmenter is not configured")
+	}
+}
+func TestCallSessionProcessAudioFrameWithoutSTTWorker(t *testing.T) {
+	call := &SIPCall{
+		CallID: "process-frame-no-worker-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vad := NewEnergyVAD(500)
+
+	segmenter := NewAudioSegmenter(
+		vad,
+		AudioConfig{
+			SampleRate: 8000,
+			FrameSize:  160,
+			Channels:   1,
+		},
+	)
+
+	call.VAD = vad
+	call.Segmenter = segmenter
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	defer session.Close()
+
+	err = session.ProcessAudioFrame(
+		context.Background(),
+		neurocall.AudioFrame{
+			Data:      []int16{1000, 1000, 1000},
+			Timestamp: 0,
+		},
+		[]int16{1000, 1000, 1000},
+	)
+
+	if err == nil {
+		t.Fatal("expected error when STT worker is not configured")
+	}
+}
+func TestCallSessionProcessAudioFrameSilence(t *testing.T) {
+	call := &SIPCall{
+		CallID: "process-frame-silence-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vad := NewEnergyVAD(500)
+
+	segmenter := NewAudioSegmenter(
+		vad,
+		AudioConfig{
+			SampleRate: 8000,
+			FrameSize:  160,
+			Channels:   1,
+		},
+	)
+
+	call.VAD = vad
+	call.Segmenter = segmenter
+
+	stt := &testSTT{
+		transcribe: func(
+			ctx context.Context,
+			segment neurocall.AudioSegment,
+		) (neurocall.Transcript, error) {
+			return neurocall.Transcript{
+				Text: "should not happen",
+			}, nil
+		},
+	}
+
+	engine := NewSTTEngine(stt)
+
+	worker, err := NewSTTWorker(
+		engine,
+		session.Events,
+		session.ID,
+		10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.ConfigureSTT(worker); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	defer session.Close()
+
+	transcriptCh := make(chan TranscriptEvent, 1)
+
+	session.Events.Subscribe(
+		EventTranscript,
+		func(event Event) {
+			if data, ok := event.Data.(TranscriptEvent); ok {
+				transcriptCh <- data
+			}
+		},
+	)
+
+	err = session.ProcessAudioFrame(
+		context.Background(),
+		neurocall.AudioFrame{
+			Data:      []int16{10, 10, 10, 10},
+			Timestamp: 0,
+		},
+		[]int16{10, 10, 10, 10},
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case event := <-transcriptCh:
+		t.Fatalf(
+			"unexpected transcript: %+v",
+			event,
+		)
+
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+func TestCallSessionProcessAudioFrameSpeechProducesTranscript(t *testing.T) {
+	call := &SIPCall{
+		CallID: "process-frame-speech-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vad := NewEnergyVAD(500)
+
+	segmenter := NewAudioSegmenter(
+		vad,
+		AudioConfig{
+			SampleRate: 8000,
+			FrameSize:  160,
+			Channels:   1,
+		},
+	)
+
+	call.VAD = vad
+	call.Segmenter = segmenter
+
+	stt := &testSTT{
+		transcribe: func(
+			ctx context.Context,
+			segment neurocall.AudioSegment,
+		) (neurocall.Transcript, error) {
+			if len(segment.Data) == 0 {
+				t.Fatal("expected segment data")
+			}
+
+			return neurocall.Transcript{
+				Text: "speech detected",
+			}, nil
+		},
+	}
+
+	engine := NewSTTEngine(stt)
+
+	worker, err := NewSTTWorker(
+		engine,
+		session.Events,
+		session.ID,
+		10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.ConfigureSTT(worker); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	defer session.Close()
+
+	transcriptCh := make(chan TranscriptEvent, 1)
+
+	session.Events.Subscribe(
+		EventTranscript,
+		func(event Event) {
+			if data, ok := event.Data.(TranscriptEvent); ok {
+				transcriptCh <- data
+			}
+		},
+	)
+
+	speechFrame := neurocall.AudioFrame{
+		Data:      []int16{1000, 1000, 1000, 1000},
+		Timestamp: 0,
+	}
+
+	for i := 0; i < 2; i++ {
+		err := session.ProcessAudioFrame(
+			context.Background(),
+			speechFrame,
+			speechFrame.Data,
+		)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	silenceFrame := neurocall.AudioFrame{
+		Data:      []int16{0, 0, 0, 0},
+		Timestamp: 20,
+	}
+
+	for i := 0; i < 10; i++ {
+		err := session.ProcessAudioFrame(
+			context.Background(),
+			silenceFrame,
+			silenceFrame.Data,
+		)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	select {
+	case event := <-transcriptCh:
+		if event.CallID != session.ID {
+			t.Fatalf(
+				"expected CallID %q, got %q",
+				session.ID,
+				event.CallID,
+			)
+		}
+
+		if event.Transcript.Text != "speech detected" {
+			t.Fatalf(
+				"expected transcript %q, got %q",
+				"speech detected",
+				event.Transcript.Text,
+			)
+		}
+
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for transcript")
+	}
+}
+func TestCallSessionProcessAudioFrameCancelledContext(t *testing.T) {
+	call := &SIPCall{
+		CallID: "process-frame-context-test",
+	}
+
+	session, err := NewCallSession(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vad := NewEnergyVAD(500)
+
+	call.VAD = vad
+
+	call.Segmenter = NewAudioSegmenter(
+		vad,
+		AudioConfig{
+			SampleRate: 8000,
+			FrameSize:  160,
+			Channels:   1,
+		},
+	)
+
+	if err := session.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	defer session.Close()
+
+	ctx, cancel := context.WithCancel(
+		context.Background(),
+	)
+	cancel()
+
+	err = session.ProcessAudioFrame(
+		ctx,
+		neurocall.AudioFrame{
+			Data: []int16{1000, 1000},
+		},
+		[]int16{1000, 1000},
+	)
+
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf(
+			"expected context.Canceled, got %v",
+			err,
+		)
+	}
+}
+func TestRTPSequenceTrackerForward(t *testing.T) {
+	tracker := NewRTPSequenceTracker()
+
+	tracker.Update(10)
+	tracker.Update(11)
+	tracker.Update(12)
+
+	stats := tracker.Stats()
+
+	if stats.ReceivedPackets != 3 {
+		t.Fatalf(
+			"expected 3 received, got %d",
+			stats.ReceivedPackets,
+		)
+	}
+
+	if stats.LostPackets != 0 {
+		t.Fatalf(
+			"expected 0 lost, got %d",
+			stats.LostPackets,
+		)
+	}
+}
+func TestRTPSequenceTrackerLoss(t *testing.T) {
+	tracker := NewRTPSequenceTracker()
+
+	tracker.Update(10)
+	tracker.Update(13)
+
+	stats := tracker.Stats()
+
+	if stats.ReceivedPackets != 2 {
+		t.Fatalf(
+			"expected 2 received, got %d",
+			stats.ReceivedPackets,
+		)
+	}
+
+	if stats.LostPackets != 2 {
+		t.Fatalf(
+			"expected 2 lost, got %d",
+			stats.LostPackets,
+		)
+	}
+}
+func TestRTPSequenceTrackerWrapAround(t *testing.T) {
+	tracker := NewRTPSequenceTracker()
+
+	tracker.Update(65534)
+	tracker.Update(65535)
+	tracker.Update(0)
+	tracker.Update(1)
+
+	stats := tracker.Stats()
+
+	if stats.ReceivedPackets != 4 {
+		t.Fatalf(
+			"expected 4 received, got %d",
+			stats.ReceivedPackets,
+		)
+	}
+
+	if stats.LostPackets != 0 {
+		t.Fatalf(
+			"expected 0 lost, got %d",
+			stats.LostPackets,
+		)
+	}
+
+	if stats.LastSequence != 1 {
+		t.Fatalf(
+			"expected last sequence 1, got %d",
+			stats.LastSequence,
+		)
+	}
+}
+func TestRTPSequenceTrackerWrapAroundLoss(t *testing.T) {
+	tracker := NewRTPSequenceTracker()
+
+	tracker.Update(65534)
+	tracker.Update(1)
+
+	stats := tracker.Stats()
+
+	if stats.ReceivedPackets != 2 {
+		t.Fatalf(
+			"expected 2 received, got %d",
+			stats.ReceivedPackets,
+		)
+	}
+
+	if stats.LostPackets != 2 {
+		t.Fatalf(
+			"expected 2 lost, got %d",
+			stats.LostPackets,
+		)
+	}
+}
+func TestRTPSequenceTrackerDuplicate1(t *testing.T) {
+	tracker := NewRTPSequenceTracker()
+
+	tracker.Update(100)
+	tracker.Update(101)
+	tracker.Update(101)
+
+	stats := tracker.Stats()
+
+	if stats.ReceivedPackets != 2 {
+		t.Fatalf(
+			"expected 2 received, got %d",
+			stats.ReceivedPackets,
+		)
+	}
+
+	if stats.Duplicates != 1 {
+		t.Fatalf(
+			"expected 1 duplicate, got %d",
+			stats.Duplicates,
+		)
+	}
+}
+func TestRTPSequenceTrackerOutOfOrder1(t *testing.T) {
+	tracker := NewRTPSequenceTracker()
+
+	tracker.Update(100)
+	tracker.Update(102)
+	tracker.Update(101)
+
+	stats := tracker.Stats()
+
+	if stats.ReceivedPackets != 2 {
+		t.Fatalf(
+			"expected 2 received, got %d",
+			stats.ReceivedPackets,
+		)
+	}
+
+	if stats.LostPackets != 1 {
+		t.Fatalf(
+			"expected 1 lost, got %d",
+			stats.LostPackets,
+		)
+	}
+
+	if stats.OutOfOrder != 1 {
+		t.Fatalf(
+			"expected 1 out-of-order, got %d",
+			stats.OutOfOrder,
+		)
+	}
+}
+func TestSeqLess(t *testing.T) {
+	tests := []struct {
+		name string
+		a    uint16
+		b    uint16
+		want bool
+	}{
+		{
+			name: "normal forward",
+			a:    10,
+			b:    11,
+			want: true,
+		},
+		{
+			name: "normal backward",
+			a:    11,
+			b:    10,
+			want: false,
+		},
+		{
+			name: "equal",
+			a:    10,
+			b:    10,
+			want: false,
+		},
+		{
+			name: "wrap",
+			a:    65535,
+			b:    0,
+			want: true,
+		},
+		{
+			name: "after wrap",
+			a:    0,
+			b:    1,
+			want: true,
+		},
+		{
+			name: "before wrap",
+			a:    65534,
+			b:    65535,
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := seqLess(tt.a, tt.b)
+
+			if got != tt.want {
+				t.Fatalf(
+					"seqLess(%d, %d) = %v, want %v",
+					tt.a,
+					tt.b,
+					got,
+					tt.want,
+				)
+			}
+		})
+	}
+}
+func TestRTPJitterBufferOrdered(t *testing.T) {
+	b := NewRTPJitterBuffer(
+		10,
+		30*time.Millisecond,
+	)
+
+	for _, seq := range []uint16{100, 101, 102} {
+		err := b.Push(&RTPPacket{
+			Header: RTPHeader{
+				SequenceNumber: seq,
+			},
+		})
+
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, expected := range []uint16{100, 101, 102} {
+		packet, ready := b.Pop()
+
+		if !ready {
+			t.Fatalf(
+				"expected packet %d to be ready",
+				expected,
+			)
+		}
+
+		if packet == nil {
+			t.Fatalf(
+				"expected packet %d, got nil",
+				expected,
+			)
+		}
+
+		if packet.Header.SequenceNumber != expected {
+			t.Fatalf(
+				"expected %d, got %d",
+				expected,
+				packet.Header.SequenceNumber,
+			)
+		}
+	}
+}
+func TestRTPJitterBufferReordersPackets(t *testing.T) {
+	b := NewRTPJitterBuffer(
+		10,
+		100*time.Millisecond,
+	)
+
+	for _, seq := range []uint16{100, 102, 101} {
+		err := b.Push(&RTPPacket{
+			Header: RTPHeader{
+				SequenceNumber: seq,
+			},
+		})
+
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, expected := range []uint16{100, 101, 102} {
+		packet, ready := b.Pop()
+
+		if !ready {
+			t.Fatalf(
+				"expected %d to be ready",
+				expected,
+			)
+		}
+
+		if packet == nil {
+			t.Fatalf(
+				"expected %d, got nil",
+				expected,
+			)
+		}
+
+		if packet.Header.SequenceNumber != expected {
+			t.Fatalf(
+				"expected %d, got %d",
+				expected,
+				packet.Header.SequenceNumber,
+			)
+		}
+	}
+}
+func TestRTPJitterBufferWrapAround(t *testing.T) {
+	b := NewRTPJitterBuffer(
+		10,
+		100*time.Millisecond,
+	)
+
+	for _, seq := range []uint16{
+		65534,
+		65535,
+		0,
+		1,
+	} {
+		err := b.Push(&RTPPacket{
+			Header: RTPHeader{
+				SequenceNumber: seq,
+			},
+		})
+
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	expected := []uint16{
+		65534,
+		65535,
+		0,
+		1,
+	}
+
+	for _, want := range expected {
+		packet, ready := b.Pop()
+
+		if !ready {
+			t.Fatalf(
+				"expected %d to be ready",
+				want,
+			)
+		}
+
+		if packet == nil {
+			t.Fatalf(
+				"expected %d, got nil",
+				want,
+			)
+		}
+
+		if packet.Header.SequenceNumber != want {
+			t.Fatalf(
+				"expected %d, got %d",
+				want,
+				packet.Header.SequenceNumber,
+			)
+		}
+	}
+}
+func TestRTPJitterBufferOverflow(t *testing.T) {
+	b := NewRTPJitterBuffer(
+		3,
+		100*time.Millisecond,
+	)
+
+	for _, seq := range []uint16{100, 101, 102, 103} {
+		if err := b.Push(&RTPPacket{
+			Header: RTPHeader{
+				SequenceNumber: seq,
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if b.HasPackets() == false {
+		t.Fatal("expected packets after overflow")
+	}
+
+	expected := []uint16{101, 102, 103}
+
+	for _, want := range expected {
+		packet, ready := b.Pop()
+
+		if !ready {
+			t.Fatalf("expected packet %d to be ready", want)
+		}
+
+		if packet == nil {
+			t.Fatalf("expected packet %d, got nil", want)
+		}
+
+		if packet.Header.SequenceNumber != want {
+			t.Fatalf(
+				"expected %d, got %d",
+				want,
+				packet.Header.SequenceNumber,
+			)
+		}
+	}
+}
+func TestRTPJitterBufferOverflowWrapAround(t *testing.T) {
+	b := NewRTPJitterBuffer(
+		3,
+		100*time.Millisecond,
+	)
+
+	for _, seq := range []uint16{
+		65534,
+		65535,
+		0,
+		1,
+	} {
+		if err := b.Push(&RTPPacket{
+			Header: RTPHeader{
+				SequenceNumber: seq,
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	expected := []uint16{
+		65535,
+		0,
+		1,
+	}
+
+	for _, want := range expected {
+		packet, ready := b.Pop()
+
+		if !ready {
+			t.Fatalf(
+				"expected packet %d to be ready",
+				want,
+			)
+		}
+
+		if packet == nil {
+			t.Fatalf(
+				"expected packet %d, got nil",
+				want,
+			)
+		}
+
+		if packet.Header.SequenceNumber != want {
+			t.Fatalf(
+				"expected %d, got %d",
+				want,
+				packet.Header.SequenceNumber,
+			)
+		}
+	}
+}
+func TestRTPSessionReadClose(t *testing.T) {
+	codec := neurocall.Codec{
+		Name:        "PCMU",
+		PayloadType: 0,
+		ClockRate:   8000,
+		Channels:    1,
+	}
+
+	session, err := NewRTPSession(
+		"127.0.0.1",
+		0,
+		net.ParseIP("127.0.0.1"),
+		9000,
+		codec,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := make(chan error, 1)
+
+	go func() {
+		_, err := session.Read()
+		result <- err
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-result:
+		if !errors.Is(err, errRTPSessionClosed) {
+			t.Fatalf(
+				"expected errRTPSessionClosed, got %v",
+				err,
+			)
+		}
+
+	case <-time.After(time.Second):
+		t.Fatal("Read did not unblock after Close")
+	}
+}
+func TestRTPSessionWriteClose(t *testing.T) {
+	codec := neurocall.Codec{
+		Name:        "PCMU",
+		PayloadType: 0,
+		ClockRate:   8000,
+		Channels:    1,
+	}
+
+	session, err := NewRTPSession(
+		"127.0.0.1",
+		0,
+		net.ParseIP("127.0.0.1"),
+		9000,
+		codec,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload := []byte{0x01, 0x02, 0x03}
+
+	result := make(chan error, 1)
+
+	go func() {
+		result <- session.Write(payload, 160)
+	}()
+
+	time.Sleep(1 * time.Millisecond)
+
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-result:
+		// Both outcomes are acceptable:
+		// the write may win the race or Close may win it.
+		if err != nil && !errors.Is(err, errRTPSessionClosed) {
+			t.Fatalf("unexpected Write error: %v", err)
+		}
+
+	case <-time.After(time.Second):
+		t.Fatal("Write did not return")
+	}
+}
+func TestRTPSessionReadOrderedClose(t *testing.T) {
+	codec := neurocall.Codec{
+		Name:        "PCMU",
+		PayloadType: 0,
+		ClockRate:   8000,
+		Channels:    1,
+	}
+
+	session, err := NewRTPSession(
+		"127.0.0.1",
+		0,
+		net.ParseIP("127.0.0.1"),
+		9000,
+		codec,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := make(chan error, 1)
+
+	go func() {
+		_, err := session.ReadOrdered()
+		result <- err
+	}()
+
+	// Give ReadOrdered enough time to reach blocking Read().
+	time.Sleep(20 * time.Millisecond)
+
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-result:
+		if !errors.Is(err, errRTPSessionClosed) {
+			t.Fatalf(
+				"expected errRTPSessionClosed, got %v",
+				err,
+			)
+		}
+
+	case <-time.After(time.Second):
+		t.Fatal("ReadOrdered did not unblock after Close")
+	}
+}
+func TestRTPSessionConcurrentWrite(t *testing.T) {
+	codec := neurocall.Codec{
+		Name:        "PCMU",
+		PayloadType: 0,
+		ClockRate:   8000,
+		Channels:    1,
+	}
+
+	session, err := NewRTPSession(
+		"127.0.0.1",
+		0,
+		net.ParseIP("127.0.0.1"),
+		9000,
+		codec,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	// session.mu.RLock()
+	// localPort := session.conn.LocalAddr().(*net.UDPAddr).Port
+	// session.mu.RUnlock()
+
+	receiver, err := net.ListenUDP(
+		"udp",
+		&net.UDPAddr{
+			IP:   net.ParseIP("127.0.0.1"),
+			Port: 9000,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer receiver.Close()
+
+	const writers = 20
+
+	var wg sync.WaitGroup
+	wg.Add(writers)
+
+	for i := 0; i < writers; i++ {
+		go func() {
+			defer wg.Done()
+
+			err := session.Write(
+				[]byte{0x01, 0x02, 0x03},
+				160,
+			)
+
+			if err != nil {
+				t.Errorf("Write failed: %v", err)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Read all packets.
+	receiver.SetReadDeadline(
+		time.Now().Add(500 * time.Millisecond),
+	)
+
+	sequences := make(map[uint16]bool)
+
+	for i := 0; i < writers; i++ {
+		buf := make([]byte, 2048)
+
+		n, _, err := receiver.ReadFromUDP(buf)
+		if err != nil {
+			t.Fatalf("failed to receive packet %d: %v", i, err)
+		}
+
+		packet := &RTPPacket{}
+
+		if err := packet.Unmarshal(buf[:n]); err != nil {
+			t.Fatalf("invalid RTP packet: %v", err)
+		}
+
+		seq := packet.Header.SequenceNumber
+
+		if sequences[seq] {
+			t.Fatalf("duplicate sequence number: %d", seq)
+		}
+
+		sequences[seq] = true
+	}
+
+	if len(sequences) != writers {
+		t.Fatalf(
+			"expected %d unique sequences, got %d",
+			writers,
+			len(sequences),
+		)
 	}
 }

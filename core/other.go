@@ -469,9 +469,6 @@ func randomUint32() uint32 {
 	}
 	return binary.BigEndian.Uint32(b[:])
 }
-func seqDistance(a, b uint16) int {
-	return int(int16(a - b))
-}
 func concealPCM(
 	codec neurocall.Codec,
 	frameSamples int,
@@ -483,9 +480,6 @@ func concealPCM(
 
 	return make([]int16, frameSamples)
 }
-func seqLess(a, b uint16) bool {
-	return int16(a-b) < 0
-}
 func buildAudioFrame(
 	timestamp uint32,
 	cfg AudioReceiveConfig,
@@ -495,4 +489,11 @@ func buildAudioFrame(
 		SampleRate: cfg.SampleRate,
 		Channels:   cfg.Channels,
 	}
+}
+func seqLess(a, b uint16) bool {
+	return a != b &&
+		uint16(b-a) < 0x8000
+}
+func seqDistance(from, to uint16) uint16 {
+	return uint16(to - from)
 }

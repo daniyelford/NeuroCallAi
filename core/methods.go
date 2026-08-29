@@ -123,6 +123,16 @@ func NewAudioPipeline(cfg AudioConfig) *AudioPipeline {
 	}
 }
 func (p *AudioPipeline) Start() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	if p.closed || p.running {
+		p.mu.Unlock()
+		return
+	}
+	p.running = true
+	p.mu.Unlock()
 	go p.run()
 }
 func (p *AudioPipeline) Decode(data []byte) ([]int16, error) {
@@ -159,34 +169,22 @@ func (p *AudioPipeline) Encode(pcm []int16) ([]byte, error) {
 	return payload, nil
 	// return encoder.Encode(pcm), nil
 }
-func (p *AudioPipeline) run() {
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case pcm, ok := <-p.input:
-			if !ok {
-				return
-			}
-			p.mu.RLock()
-			encoder := p.encoder
-			decoder := p.decoder
-			p.mu.RUnlock()
-			if encoder == nil || decoder == nil {
-				continue
-			}
-			payload := encoder.Encode(pcm)
-			decoded := decoder.Decode(payload)
-			select {
-			case p.output <- decoded:
-			case <-p.ctx.Done():
-				return
-			}
-		}
-	}
-}
 func (p *AudioPipeline) Close() error {
-	p.cancel()
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return nil
+	}
+	p.closed = true
+	p.running = false
+	cancel := p.cancel
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	return nil
 }
 func (p *AudioPipeline) SetEncoder(encoder neurocall.Encoder) {
@@ -200,11 +198,25 @@ func (p *AudioPipeline) SetDecoder(decoder neurocall.Decoder) {
 	p.decoder = decoder
 }
 func (p *AudioPipeline) Push(audio []int16) error {
-	select {
-	case p.input <- audio:
-		return nil
-	case <-p.ctx.Done():
+	if p == nil {
 		return neurocall.ErrCallClosed
+	}
+	if len(audio) == 0 {
+		return neurocall.ErrInvalidAudio
+	}
+	p.mu.RLock()
+	if p.closed || !p.running {
+		p.mu.RUnlock()
+		return neurocall.ErrCallClosed
+	}
+	input := p.input
+	ctx := p.ctx
+	p.mu.RUnlock()
+	select {
+	case <-ctx.Done():
+		return neurocall.ErrCallClosed
+	case input <- audio:
+		return nil
 	}
 }
 func (p *AudioPipeline) Pull() ([]int16, error) {
@@ -246,6 +258,46 @@ func (p *AudioPipeline) Resampler() neurocall.Resampler {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.resampler
+}
+func (p *AudioPipeline) run() {
+	defer func() {
+		p.mu.Lock()
+		p.running = false
+		p.mu.Unlock()
+	}()
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case pcm, ok := <-p.input:
+			if !ok {
+				return
+			}
+			if len(pcm) == 0 {
+				continue
+			}
+			p.mu.RLock()
+			encoder := p.encoder
+			decoder := p.decoder
+			p.mu.RUnlock()
+			if encoder == nil || decoder == nil {
+				continue
+			}
+			payload := encoder.Encode(pcm)
+			if len(payload) == 0 {
+				continue
+			}
+			decoded := decoder.Decode(payload)
+			if len(decoded) == 0 {
+				continue
+			}
+			select {
+			case p.output <- decoded:
+			case <-p.ctx.Done():
+				return
+			}
+		}
+	}
 }
 
 // AudioPipeline
@@ -834,67 +886,49 @@ func (s *CallSession) ProcessAudioFrame(
 	if s == nil {
 		return neurocall.ErrCallClosed
 	}
-
 	if len(pcm) == 0 {
 		return neurocall.ErrInvalidAudio
 	}
-
 	if ctx == nil {
 		ctx = context.Background()
 	}
-
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 	s.mu.RLock()
-
 	if s.closed || !s.running {
 		s.mu.RUnlock()
 		return neurocall.ErrCallClosed
 	}
-
-	vad := s.Call.VAD
-	segmenter := s.Call.Segmenter
+	call := s.Call
 	worker := s.STTWorker
-
 	s.mu.RUnlock()
-
-	if segmenter == nil {
-		return fmt.Errorf("speech segmenter is not configured")
+	if call == nil {
+		return neurocall.ErrCallNotFound
 	}
-
 	if worker == nil {
 		return fmt.Errorf("STT worker is not configured")
 	}
-
-	if vad != nil {
-		speech, err := vad.Process(ctx, frame)
-
-		if err != nil {
-			return err
-		}
-
-		if !speech {
-			return nil
-		}
+	call.mu.RLock()
+	segmenter := call.Segmenter
+	call.mu.RUnlock()
+	if segmenter == nil {
+		return fmt.Errorf("speech segmenter is not configured")
 	}
-
-	segments, err := segmenter.Process(
-		ctx,
-		frame,
-	)
-
+	segments, err := segmenter.Process(ctx, frame)
 	if err != nil {
 		return err
 	}
-
 	for _, segment := range segments {
 		if len(segment.Data) == 0 {
 			continue
 		}
-
 		if err := worker.Push(segment); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 func (s *CallSession) SetSTT(
@@ -1090,11 +1124,17 @@ func (s *CallSession) PushSTTSegment(
 	return worker.Push(segment)
 }
 func (s *CallSession) Running() bool {
+	if s == nil {
+		return false
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.running && !s.closed
 }
 func (s *CallSession) Closed() bool {
+	if s == nil {
+		return true
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.closed
@@ -1359,7 +1399,22 @@ func (c *SIPCall) STTWorker() *STTWorker {
 	return c.STT
 }
 func (c *SIPCall) StartReceiveLoop() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	if c.closed || c.receiveRunning {
+		c.mu.Unlock()
+		return
+	}
+	c.receiveRunning = true
+	c.mu.Unlock()
 	go func() {
+		defer func() {
+			c.mu.Lock()
+			c.receiveRunning = false
+			c.mu.Unlock()
+		}()
 		for {
 			c.mu.RLock()
 			if c.closed {
@@ -1397,9 +1452,6 @@ func (c *SIPCall) StartReceiveLoop() {
 				Channels:   codec.Channels,
 			}
 			ctx := context.Background()
-			// if rtp != nil {
-			// 	ctx = session.Context()
-			// }
 			segments, err := segmenter.Process(ctx, frame)
 			if err != nil {
 				continue
@@ -1408,10 +1460,14 @@ func (c *SIPCall) StartReceiveLoop() {
 				continue
 			}
 			for _, segment := range segments {
+				if len(segment.Data) == 0 {
+					continue
+				}
 				if err := stt.Push(segment); err != nil {
 					if c.Closed() {
 						return
 					}
+
 					continue
 				}
 			}
@@ -2019,7 +2075,7 @@ func (s *SIPServer) handleINVITE(_ context.Context, req *SIPMessage, remote *net
 	}
 
 	// Start RTP receive → STT
-	call.StartReceiveLoop()
+	// call.StartReceiveLoop()
 
 	// SDP Answer
 	body := BuildSDPAnswer(call, s.config)
@@ -3333,44 +3389,31 @@ func NewRTPSession(
 		writeInterval:   20 * time.Millisecond,
 	}, nil
 }
-func (s *RTPSession) ReadOrdered() (
-	RTPReadResult,
-	error,
-) {
+func (s *RTPSession) ReadOrdered() (RTPReadResult, error) {
 	for {
 		packet, ready := s.jitter.Pop()
-
 		if ready {
 			if packet == nil {
 				return RTPReadResult{
 					Lost: true,
 				}, nil
 			}
-
 			return RTPReadResult{
 				Packet: packet,
 			}, nil
 		}
-
 		if s.jitter.HasPackets() {
-			time.Sleep(1 * time.Millisecond)
+			s.jitter.WaitForChange(s.jitter.maxWait)
 			continue
 		}
-
 		packet, err := s.Read()
 		if err != nil {
 			return RTPReadResult{}, err
 		}
-
 		if err := s.jitter.Push(packet); err != nil {
 			continue
 		}
 	}
-}
-func (b *RTPJitterBuffer) HasPackets() bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return len(b.packets) > 0
 }
 func (s *RTPSession) Close() error {
 	s.mu.Lock()
@@ -3386,9 +3429,7 @@ func (s *RTPSession) Close() error {
 	}
 	return conn.Close()
 }
-func (s *RTPSession) ReadPCM(
-	decoder neurocall.Decoder,
-) ([]int16, error) {
+func (s *RTPSession) ReadPCM(decoder neurocall.Decoder) ([]int16, error) {
 
 	if decoder == nil {
 		return nil, fmt.Errorf("decoder is nil")
@@ -3442,10 +3483,7 @@ func (s *RTPSession) ReadPCM(
 
 	return pcm, nil
 }
-func (s *RTPSession) WritePCM(
-	encoder neurocall.Encoder,
-	pcm []int16,
-) error {
+func (s *RTPSession) WritePCM(encoder neurocall.Encoder, pcm []int16) error {
 	if encoder == nil {
 		return fmt.Errorf("encoder is nil")
 	}
@@ -3480,41 +3518,34 @@ func (s *RTPSession) ResetStats() {
 }
 func (s *RTPSession) Read() (*RTPPacket, error) {
 	s.mu.RLock()
-
 	if s.closed {
 		s.mu.RUnlock()
 		return nil, errRTPSessionClosed
 	}
-
 	conn := s.conn
-
 	s.mu.RUnlock()
-
 	if conn == nil {
 		return nil, errRTPSessionClosed
 	}
-
 	buf := make([]byte, 2048)
-
 	n, _, err := conn.ReadFromUDP(buf)
-
 	if err != nil {
+		s.mu.RLock()
+		closed := s.closed
+		s.mu.RUnlock()
+		if closed {
+			return nil, errRTPSessionClosed
+		}
 		return nil, err
 	}
-
 	s.mu.Lock()
-
 	s.stats.BytesReceived += uint64(n)
-
 	s.mu.Unlock()
-
 	packet := &RTPPacket{}
-
 	if err := packet.Unmarshal(buf[:n]); err != nil {
 		s.mu.Lock()
 		s.stats.InvalidPackets++
 		s.mu.Unlock()
-
 		return nil, err
 	}
 	s.sequenceTracker.Update(packet.Header.SequenceNumber)
@@ -3525,10 +3556,7 @@ func (s *RTPSession) Read() (*RTPPacket, error) {
 	s.mu.Unlock()
 	return packet, nil
 }
-func (s *RTPSession) Write(
-	payload []byte,
-	samples int,
-) error {
+func (s *RTPSession) Write(payload []byte, samples int) error {
 
 	if len(payload) == 0 {
 		return neurocall.ErrInvalidAudio
@@ -3587,11 +3615,7 @@ func (s *RTPSession) Write(
 
 	return nil
 }
-func (s *RTPSession) WritePCMRealtime(
-	ctx context.Context,
-	encoder neurocall.Encoder,
-	pcm []int16,
-) error {
+func (s *RTPSession) WritePCMRealtime(ctx context.Context, encoder neurocall.Encoder, pcm []int16) error {
 
 	if encoder == nil {
 		return fmt.Errorf("encoder is nil")
@@ -3663,7 +3687,7 @@ func (s *RTPSession) WritePCMRealtime(
 	return nil
 }
 
-// RTPStats
+// RTPSession
 // RTPSequenceTracker
 func NewRTPSequenceTracker() *RTPSequenceTracker {
 	return &RTPSequenceTracker{}
@@ -3747,31 +3771,40 @@ func NewRTPJitterBuffer(
 		packets:    make(map[uint16]jitterPacket),
 		maxPackets: maxPackets,
 		maxWait:    maxWait,
+		notify:     make(chan struct{}, 1),
 	}
 }
 func (b *RTPJitterBuffer) Push(packet *RTPPacket) error {
 	if packet == nil {
 		return errInvalidRTPPacket
 	}
-
 	b.mu.Lock()
 	defer b.mu.Unlock()
-
 	seq := packet.Header.SequenceNumber
-
 	if _, exists := b.packets[seq]; exists {
 		return nil
 	}
-
+	// Before the buffer has produced anything, allow
+	// reordering around the initial sequence number.
+	if !b.started {
+		b.started = true
+		b.next = seq
+	}
+	// Once output has started, packets behind next are stale.
+	if b.advanced && seqLess(seq, b.next) {
+		return nil
+	}
 	b.packets[seq] = jitterPacket{
 		packet:     packet,
 		receivedAt: time.Now(),
 	}
-
-	if !b.started {
-		b.started = true
-		b.next = seq
-	} else if seqLess(seq, b.next) {
+	select {
+	case b.notify <- struct{}{}:
+	default:
+	}
+	// Before output starts, an earlier packet becomes
+	// the new starting point.
+	if !b.advanced && seqLess(seq, b.next) {
 		b.next = seq
 	}
 
@@ -3789,65 +3822,84 @@ func (b *RTPJitterBuffer) Pop() (*RTPPacket, bool) {
 		return nil, false
 	}
 
-	// Expected packet arrived.
-	entry, ok := b.packets[b.next]
-
-	if ok {
+	// Expected packet is available.
+	if entry, ok := b.packets[b.next]; ok {
 		delete(b.packets, b.next)
 		b.next++
+		b.advanced = true
 
 		return entry.packet, true
 	}
 
+	// No packet after the expected sequence.
 	if len(b.packets) == 0 {
 		return nil, false
 	}
 
-	// Find whether the oldest buffered packet
-	// has waited long enough.
+	// Something later exists. Check whether the missing
+	// packet has waited long enough.
 	var oldestWait time.Duration
-	found := false
 
 	for _, entry := range b.packets {
 		wait := time.Since(entry.receivedAt)
 
-		if !found || wait > oldestWait {
+		if wait > oldestWait {
 			oldestWait = wait
-			found = true
 		}
 	}
 
-	if !found || oldestWait < b.maxWait {
+	if oldestWait < b.maxWait {
 		return nil, false
 	}
 
 	// Expected packet is considered lost.
 	b.next++
+	b.advanced = true
 
 	return nil, true
 }
 func (b *RTPJitterBuffer) dropOldestLocked() {
-
 	if len(b.packets) == 0 {
 		return
 	}
-
-	var oldest uint16
-	first := true
-
+	// The oldest packet is the one closest to next
+	// in forward RTP sequence space.
+	oldest := b.next
+	found := false
+	var oldestDistance uint16
 	for seq := range b.packets {
-		if first {
+		distance := seqDistance(b.next, seq)
+		if !found || distance < oldestDistance {
 			oldest = seq
-			first = false
-			continue
-		}
-
-		if seqDistance(seq, oldest) > 0 {
-			oldest = seq
+			oldestDistance = distance
+			found = true
 		}
 	}
-
+	if !found {
+		return
+	}
 	delete(b.packets, oldest)
+	// If we dropped the packet we were waiting for,
+	// advance next so Pop() can continue.
+	if oldest == b.next {
+		b.next++
+	}
+}
+func (b *RTPJitterBuffer) WaitForChange(timeout time.Duration) {
+	if timeout <= 0 {
+		timeout = b.maxWait
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-b.notify:
+	case <-timer.C:
+	}
+}
+func (b *RTPJitterBuffer) HasPackets() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.packets) > 0
 }
 
 // RTPJitterBuffer

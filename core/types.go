@@ -14,23 +14,24 @@ import (
 // SIP
 // --------------------
 type SIPCall struct {
-	CallID       string
-	TTS          *TTSPlayback
-	RemoteIP     net.IP
-	RemotePort   int
-	LocalRTPPort int
-	Codec        neurocall.Codec
-	RemoteAddr   *net.UDPAddr
-	RTP          *RTPSession
-	Pipeline     *AudioPipeline
-	VAD          neurocall.VAD
-	Segmenter    neurocall.SpeechSegmenter
-	STT          *STTWorker
-	Conversation *Conversation
-	dialog       *SIPDialog
-	answered     bool
-	closed       bool
-	mu           sync.RWMutex
+	CallID         string
+	TTS            *TTSPlayback
+	RemoteIP       net.IP
+	RemotePort     int
+	LocalRTPPort   int
+	Codec          neurocall.Codec
+	RemoteAddr     *net.UDPAddr
+	RTP            *RTPSession
+	Pipeline       *AudioPipeline
+	VAD            neurocall.VAD
+	Segmenter      neurocall.SpeechSegmenter
+	STT            *STTWorker
+	Conversation   *Conversation
+	dialog         *SIPDialog
+	answered       bool
+	closed         bool
+	mu             sync.RWMutex
+	receiveRunning bool
 }
 type SIPMessage struct {
 	StartLine string
@@ -155,6 +156,8 @@ type AudioPipeline struct {
 	output    chan []int16
 	ctx       context.Context
 	cancel    context.CancelFunc
+	running   bool
+	closed    bool
 }
 type AudioEngine struct {
 	pipeline *AudioPipeline
@@ -405,6 +408,8 @@ type RTPJitterBuffer struct {
 	started    bool
 	maxPackets int
 	maxWait    time.Duration
+	advanced   bool
+	notify     chan struct{}
 }
 type RTPReadResult struct {
 	Packet *RTPPacket

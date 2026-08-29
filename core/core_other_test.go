@@ -52,7 +52,19 @@ type integrationTestTTS struct {
 	text  string
 	data  neurocall.AudioStreamData
 }
+type testSTT struct {
+	transcribe func(
+		context.Context,
+		neurocall.AudioSegment,
+	) (neurocall.Transcript, error)
+}
 
+func (s *testSTT) Transcribe(
+	ctx context.Context,
+	segment neurocall.AudioSegment,
+) (neurocall.Transcript, error) {
+	return s.transcribe(ctx, segment)
+}
 func (l *integrationTestLLM) Chat(
 	messages []neurocall.Message,
 ) (neurocall.Message, error) {
