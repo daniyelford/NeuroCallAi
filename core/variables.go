@@ -72,3 +72,5 @@ var (
 	}
 	defaultLogger = log.Default()
 )
+var _ neurocall.Call = (*SIPCall)(nil)
+var _ neurocall.ToolRegistry = (*ToolRegistry)(nil)

@@ -197,36 +197,6 @@ func (p *AudioPipeline) SetDecoder(decoder neurocall.Decoder) {
 	defer p.mu.Unlock()
 	p.decoder = decoder
 }
-func (p *AudioPipeline) Push(audio []int16) error {
-	if p == nil {
-		return neurocall.ErrCallClosed
-	}
-	if len(audio) == 0 {
-		return neurocall.ErrInvalidAudio
-	}
-	p.mu.RLock()
-	if p.closed || !p.running {
-		p.mu.RUnlock()
-		return neurocall.ErrCallClosed
-	}
-	input := p.input
-	ctx := p.ctx
-	p.mu.RUnlock()
-	select {
-	case <-ctx.Done():
-		return neurocall.ErrCallClosed
-	case input <- audio:
-		return nil
-	}
-}
-func (p *AudioPipeline) Pull() ([]int16, error) {
-	select {
-	case audio := <-p.output:
-		return audio, nil
-	case <-p.ctx.Done():
-		return nil, neurocall.ErrCallClosed
-	}
-}
 func (p *AudioPipeline) SetResampler(resampler neurocall.Resampler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -258,6 +228,36 @@ func (p *AudioPipeline) Resampler() neurocall.Resampler {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.resampler
+}
+func (p *AudioPipeline) Push(audio []int16) error {
+	if p == nil {
+		return neurocall.ErrCallClosed
+	}
+	if len(audio) == 0 {
+		return neurocall.ErrInvalidAudio
+	}
+	p.mu.RLock()
+	if p.closed || !p.running {
+		p.mu.RUnlock()
+		return neurocall.ErrCallClosed
+	}
+	input := p.input
+	ctx := p.ctx
+	p.mu.RUnlock()
+	select {
+	case <-ctx.Done():
+		return neurocall.ErrCallClosed
+	case input <- audio:
+		return nil
+	}
+}
+func (p *AudioPipeline) Pull() ([]int16, error) {
+	select {
+	case audio := <-p.output:
+		return audio, nil
+	case <-p.ctx.Done():
+		return nil, neurocall.ErrCallClosed
+	}
 }
 func (p *AudioPipeline) run() {
 	defer func() {
@@ -515,25 +515,18 @@ func NewCallManager(
 		),
 	}
 }
-func (m *CallManager) StartSession(
-	call *SIPCall,
-) (*CallSession, error) {
-
+func (m *CallManager) StartSession(call *SIPCall) (*CallSession, error) {
 	session, err := m.CreateSession(call)
-
 	if err != nil {
 		return nil, err
 	}
-
 	if err := session.Start(); err != nil {
+		_ = m.RemoveSession(call.CallID)
 		return nil, err
 	}
-
 	return session, nil
 }
-func (m *CallManager) Add(
-	call *SIPCall,
-) error {
+func (m *CallManager) Add(call *SIPCall) error {
 
 	if call == nil {
 		return neurocall.ErrCallNotFound
@@ -557,9 +550,7 @@ func (m *CallManager) Add(
 
 	return nil
 }
-func (m *CallManager) Get(
-	id string,
-) (*SIPCall, error) {
+func (m *CallManager) Get(id string) (*SIPCall, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	call, ok := m.calls[id]
@@ -629,9 +620,7 @@ func (m *CallManager) List() []*SIPCall {
 
 	return result
 }
-func (m *CallManager) CreateSession(
-	call *SIPCall,
-) (*CallSession, error) {
+func (m *CallManager) CreateSession(call *SIPCall) (*CallSession, error) {
 	if call == nil || call.CallID == "" {
 		return nil, neurocall.ErrCallNotFound
 	}
@@ -651,9 +640,7 @@ func (m *CallManager) CreateSession(
 	m.sessions[call.CallID] = session
 	return session, nil
 }
-func (m *CallManager) GetSession(
-	id string,
-) (*CallSession, error) {
+func (m *CallManager) GetSession(id string) (*CallSession, error) {
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -712,9 +699,7 @@ func NewCallSession(call *SIPCall) (*CallSession, error) {
 
 	return session, nil
 }
-func (s *CallSession) ConfigureConversation(
-	llm *LLMEngine,
-) error {
+func (s *CallSession) ConfigureConversation(llm *LLMEngine) error {
 	if s == nil {
 		return neurocall.ErrCallClosed
 	}
@@ -742,9 +727,7 @@ func (s *CallSession) ConfigureConversation(
 
 	return s.AttachSTTEvents()
 }
-func (s *CallSession) ConfigureVoice(
-	tts *TTSEngine,
-) error {
+func (s *CallSession) ConfigureVoice(tts *TTSEngine) error {
 	if s == nil {
 		return neurocall.ErrCallClosed
 	}
@@ -779,9 +762,7 @@ func (s *CallSession) ConfigureVoice(
 
 	return nil
 }
-func (s *CallSession) ConfigureSTT(
-	worker *STTWorker,
-) error {
+func (s *CallSession) ConfigureSTT(worker *STTWorker) error {
 	if s == nil {
 		return neurocall.ErrCallClosed
 	}
@@ -847,9 +828,7 @@ func (s *CallSession) AttachSTTEvents() error {
 	)
 	return nil
 }
-func (s *CallSession) ProcessAudioSegment(
-	segment neurocall.AudioSegment,
-) error {
+func (s *CallSession) ProcessAudioSegment(segment neurocall.AudioSegment) error {
 
 	if s == nil {
 		return neurocall.ErrCallClosed
@@ -878,11 +857,7 @@ func (s *CallSession) ProcessAudioSegment(
 
 	return worker.Push(segment)
 }
-func (s *CallSession) ProcessAudioFrame(
-	ctx context.Context,
-	frame neurocall.AudioFrame,
-	pcm []int16,
-) error {
+func (s *CallSession) ProcessAudioFrame(ctx context.Context, frame neurocall.AudioFrame, pcm []int16) error {
 	if s == nil {
 		return neurocall.ErrCallClosed
 	}
@@ -931,48 +906,36 @@ func (s *CallSession) ProcessAudioFrame(
 	}
 	return nil
 }
-func (s *CallSession) SetSTT(
-	stt neurocall.STT,
-) {
+func (s *CallSession) SetSTT(stt neurocall.STT) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.STT = stt
 }
-func (s *CallSession) SetStreamingSTT(
-	stt neurocall.StreamingSTT,
-) {
+func (s *CallSession) SetStreamingSTT(stt neurocall.StreamingSTT) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.StreamingSTT = stt
 }
-func (s *CallSession) SetTTS(
-	tts neurocall.TTS,
-) {
+func (s *CallSession) SetTTS(tts neurocall.TTS) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.TTS = tts
 }
-func (s *CallSession) SetLLM(
-	llm neurocall.LLM,
-) {
+func (s *CallSession) SetLLM(llm neurocall.LLM) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.LLM = llm
 }
-func (s *CallSession) SetMemory(
-	memory neurocall.Memory,
-) {
+func (s *CallSession) SetMemory(memory neurocall.Memory) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Memory = memory
 }
-func (s *CallSession) SetTools(
-	tools neurocall.ToolRegistry,
-) {
+func (s *CallSession) SetTools(tools neurocall.ToolRegistry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Tools = tools
@@ -1065,9 +1028,7 @@ func (s *CallSession) State() CallSessionState {
 		HasTTS:   s.VoiceEngine != nil,
 	}
 }
-func (s *CallSession) PushAudio(
-	audio []int16,
-) error {
+func (s *CallSession) PushAudio(audio []int16) error {
 
 	if s == nil {
 		return neurocall.ErrCallClosed
@@ -1094,9 +1055,7 @@ func (s *CallSession) PushAudio(
 
 	return pipeline.Push(audio)
 }
-func (s *CallSession) PushSTTSegment(
-	segment neurocall.AudioSegment,
-) error {
+func (s *CallSession) PushSTTSegment(segment neurocall.AudioSegment) error {
 
 	if s == nil {
 		return neurocall.ErrCallClosed
@@ -1329,6 +1288,7 @@ func (r *ToolRegistry) Call(
 
 // ToolRegistry
 // SIPCall
+
 func (c *SIPCall) ID() string {
 	return c.CallID
 }
@@ -1728,9 +1688,7 @@ func NewSIPServer(
 
 	return server
 }
-func (s *SIPServer) Listen(
-	ctx context.Context,
-) error {
+func (s *SIPServer) Listen(ctx context.Context) error {
 
 	s.mu.Lock()
 
@@ -1773,30 +1731,21 @@ func (s *SIPServer) Listen(
 	return nil
 }
 func (s *SIPServer) Stop() error {
-
 	s.mu.Lock()
-
 	conn := s.conn
 	cancel := s.cancel
-
 	s.conn = nil
 	s.cancel = nil
-
 	s.mu.Unlock()
-
 	if cancel != nil {
 		cancel()
 	}
-
 	if conn != nil {
 		return conn.Close()
 	}
-
 	return nil
 }
-func (s *SIPServer) readLoop(
-	ctx context.Context,
-) {
+func (s *SIPServer) readLoop(ctx context.Context) {
 
 	buffer := make(
 		[]byte,
@@ -1851,49 +1800,36 @@ func (s *SIPServer) readLoop(
 		}(data, remote)
 	}
 }
-func (s *SIPServer) handle(
-	ctx context.Context,
-	data []byte,
-	remote *net.UDPAddr,
-) error {
-
-	message, err :=
-		ParseSIPMessage(data)
-
+func (s *SIPServer) handle(ctx context.Context, data []byte, remote *net.UDPAddr) error {
+	message, err := ParseSIPMessage(data)
 	if err != nil {
 		return err
 	}
-
 	switch message.Method() {
-
 	case "INVITE":
 		return s.handleINVITE(
 			ctx,
 			message,
 			remote,
 		)
-
 	case "ACK":
 		return s.handleACK(
 			ctx,
 			message,
 			remote,
 		)
-
 	case "BYE":
 		return s.handleBYE(
 			ctx,
 			message,
 			remote,
 		)
-
 	case "OPTIONS":
 		return s.handleOPTIONS(
 			ctx,
 			message,
 			remote,
 		)
-
 	default:
 		return s.sendResponse(
 			message,
@@ -1904,13 +1840,7 @@ func (s *SIPServer) handle(
 		)
 	}
 }
-func (s *SIPServer) sendResponse(
-	req *SIPMessage,
-	remote *net.UDPAddr,
-	code int,
-	reason string,
-	body []byte,
-) error {
+func (s *SIPServer) sendResponse(req *SIPMessage, remote *net.UDPAddr, code int, reason string, body []byte) error {
 
 	data := BuildSIPResponse(
 		req,
@@ -2088,11 +2018,7 @@ func (s *SIPServer) handleINVITE(_ context.Context, req *SIPMessage, remote *net
 	}
 	return nil
 }
-func (s *SIPServer) handleACK(
-	_ context.Context,
-	req *SIPMessage,
-	_ *net.UDPAddr,
-) error {
+func (s *SIPServer) handleACK(_ context.Context, req *SIPMessage, _ *net.UDPAddr) error {
 	callID := req.Headers["call-id"]
 	if callID == "" {
 		return neurocall.ErrCallNotFound
@@ -2116,11 +2042,7 @@ func (s *SIPServer) handleACK(
 	}
 	return nil
 }
-func (s *SIPServer) handleBYE(
-	_ context.Context,
-	req *SIPMessage,
-	remote *net.UDPAddr,
-) error {
+func (s *SIPServer) handleBYE(_ context.Context, req *SIPMessage, remote *net.UDPAddr) error {
 	callID := req.Headers["call-id"]
 	if callID == "" {
 		return s.sendResponse(req, remote, 400, "Bad Request", nil)
@@ -2138,11 +2060,7 @@ func (s *SIPServer) handleBYE(
 	}
 	return s.manager.Remove(callID)
 }
-func (s *SIPServer) handleOPTIONS(
-	_ context.Context,
-	req *SIPMessage,
-	remote *net.UDPAddr,
-) error {
+func (s *SIPServer) handleOPTIONS(_ context.Context, req *SIPMessage, remote *net.UDPAddr) error {
 
 	return s.sendResponse(
 		req,

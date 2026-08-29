@@ -71,28 +71,67 @@ func BytesToPCM16(
 }
 func ParseSDP(data []byte) (RemoteMedia, error) {
 	var desc sdp.SessionDescription
+
 	if err := desc.Unmarshal(data); err != nil {
 		return RemoteMedia{}, err
 	}
-	var ip net.IP
-	if desc.ConnectionInformation != nil && desc.ConnectionInformation.Address != nil {
-		ip = net.ParseIP(desc.ConnectionInformation.Address.Address)
+
+	var sessionIP net.IP
+
+	if desc.ConnectionInformation != nil &&
+		desc.ConnectionInformation.Address != nil {
+		sessionIP = net.ParseIP(
+			desc.ConnectionInformation.Address.Address,
+		)
 	}
+
 	for _, media := range desc.MediaDescriptions {
 		if media.MediaName.Media != "audio" {
 			continue
 		}
+
 		port := int(media.MediaName.Port.Value)
+		if port <= 0 {
+			return RemoteMedia{}, fmt.Errorf(
+				"invalid audio port: %d",
+				port,
+			)
+		}
+
+		ip := sessionIP
+
+		// Media-level c= takes precedence over session-level c=.
+		if media.ConnectionInformation != nil &&
+			media.ConnectionInformation.Address != nil {
+
+			mediaIP := net.ParseIP(
+				media.ConnectionInformation.Address.Address,
+			)
+
+			if mediaIP != nil {
+				ip = mediaIP
+			}
+		}
+
+		if ip == nil {
+			return RemoteMedia{}, fmt.Errorf(
+				"audio connection IP is missing",
+			)
+		}
+
 		codecs := parseCodecs(media)
+
 		if len(codecs) == 0 {
 			return RemoteMedia{}, errNoAudioCodec
 		}
+
 		return RemoteMedia{
 			IP:     ip,
 			Port:   port,
 			Codecs: codecs,
 		}, nil
 	}
+
 	return RemoteMedia{}, errNoAudioMedia
 }
 func parseCodecs(
