@@ -513,7 +513,17 @@ func NewCallManager(
 		sessions: make(
 			map[string]*CallSession,
 		),
+
+		bus: NewEventBus(),
 	}
+}
+func (m *CallManager) SetEventBus(bus *EventBus) {
+	if m == nil || bus == nil {
+		return
+	}
+	m.mu.Lock()
+	m.bus = bus
+	m.mu.Unlock()
 }
 func (m *CallManager) StartSession(call *SIPCall) (*CallSession, error) {
 	session, err := m.CreateSession(call)
@@ -579,25 +589,22 @@ func (m *CallManager) Remove(id string) error {
 
 	m.mu.Unlock()
 
+	var localPort int
 	if call != nil {
 		call.mu.Lock()
-		localPort := call.LocalRTPPort
+		localPort = call.LocalRTPPort
 		call.LocalRTPPort = 0
 		call.mu.Unlock()
-
-		if localPort > 0 {
-			m.ports.Release(localPort)
-		}
 	}
-
 	if session != nil {
 		_ = session.Close()
 	}
-
 	if call != nil {
 		_ = call.CloseResources()
 	}
-
+	if localPort > 0 {
+		m.ports.Release(localPort)
+	}
 	return nil
 }
 func (m *CallManager) List() []*SIPCall {
@@ -632,11 +639,18 @@ func (m *CallManager) CreateSession(call *SIPCall) (*CallSession, error) {
 	if _, exists := m.sessions[call.CallID]; exists {
 		return nil, fmt.Errorf("session already exists: %s", call.CallID)
 	}
-	session, err := NewCallSession(call)
+	bus := m.bus
+	if bus == nil {
+		bus = NewEventBus()
+		m.bus = bus
+	}
+	session, err := NewCallSession(
+		call,
+		bus,
+	)
 	if err != nil {
 		return nil, err
 	}
-	// 	m.calls[call.CallID] = call
 	m.sessions[call.CallID] = session
 	return session, nil
 }
@@ -667,7 +681,7 @@ func (m *CallManager) RemoveSession(id string) error {
 
 // CallManager
 // CallSession
-func NewCallSession(call *SIPCall) (*CallSession, error) {
+func NewCallSession(call *SIPCall, bus *EventBus) (*CallSession, error) {
 	if call == nil {
 		return nil, neurocall.ErrCallNotFound
 	}
@@ -675,19 +689,17 @@ func NewCallSession(call *SIPCall) (*CallSession, error) {
 	if call.CallID == "" {
 		return nil, neurocall.ErrCallNotFound
 	}
-
 	ctx, cancel := context.WithCancel(
 		context.Background(),
 	)
-
-	events := NewEventBus()
-
+	if bus == nil {
+		bus = NewEventBus()
+	}
 	conversation := NewConversation()
-
 	session := &CallSession{
 		ID:           call.CallID,
 		Call:         call,
-		Events:       events,
+		Events:       bus,
 		Conversation: conversation,
 
 		Memory: NewMemory(),
@@ -715,15 +727,30 @@ func (s *CallSession) ConfigureConversation(llm *LLMEngine) error {
 		return neurocall.ErrCallClosed
 	}
 
-	s.LLM = llm
+	conversation := s.Conversation
+	bus := s.Events
+	callID := s.ID
 
-	s.ConversationEngine =
-		NewConversationEngine(
-			llm,
-			s.Events,
-		)
+	engine := NewConversationEngine(
+		llm,
+		bus,
+	)
+
+	s.LLM = llm
+	s.ConversationEngine = engine
 
 	s.mu.Unlock()
+
+	if conversation == nil {
+		return fmt.Errorf("conversation is not configured")
+	}
+
+	if err := engine.SetConversation(
+		callID,
+		conversation,
+	); err != nil {
+		return err
+	}
 
 	return s.AttachSTTEvents()
 }
@@ -807,6 +834,7 @@ func (s *CallSession) AttachSTTEvents() error {
 			"conversation engine is not configured",
 		)
 	}
+	callID := s.ID
 	s.sttEventsAttached = true
 	s.mu.Unlock()
 	bus.Subscribe(
@@ -816,16 +844,31 @@ func (s *CallSession) AttachSTTEvents() error {
 			if !ok {
 				return
 			}
-			if data.CallID != s.ID {
+			if data.CallID != callID {
+				return
+			}
+			if s.Closed() {
 				return
 			}
 			go func() {
-				if err := engine.HandleTranscript(data); err != nil {
-					bus.Publish(Event{Name: EventLLMError, Data: err})
+				if s.Closed() {
+					return
+				}
+				if err := engine.HandleTranscript(
+					data,
+				); err != nil {
+					if s.Closed() {
+						return
+					}
+					bus.Publish(Event{
+						Name: EventLLMError,
+						Data: err,
+					})
 				}
 			}()
 		},
 	)
+
 	return nil
 }
 func (s *CallSession) ProcessAudioSegment(segment neurocall.AudioSegment) error {
@@ -989,14 +1032,6 @@ func (s *CallSession) Start() error {
 		}
 	}
 
-	// if err := s.AttachSTTEventsIfReady(); err != nil {
-	// 	s.mu.Lock()
-	// 	s.running = false
-	// 	s.mu.Unlock()
-
-	// 	return err
-	// }
-
 	if s.Events != nil {
 		s.Events.Publish(Event{
 			Name: EventCallStarted,
@@ -1134,25 +1169,26 @@ func (s *CallSession) Close() error {
 	worker := s.STTWorker
 	audio := s.Audio
 	events := s.Events
-
+	conversationEngine := s.ConversationEngine
+	callID := s.ID
 	s.mu.Unlock()
 
-	// Stop STT first.
+	if conversationEngine != nil {
+		_ = conversationEngine.Remove(callID)
+	}
+
 	if worker != nil {
 		worker.Stop()
 	}
 
-	// Stop audio pipeline.
 	if audio != nil {
 		_ = audio.Close()
 	}
 
-	// Cancel session context.
 	if cancel != nil {
 		cancel()
 	}
 
-	// Notify observers.
 	if events != nil {
 		events.Publish(Event{
 			Name: EventCallEnded,
@@ -1437,26 +1473,20 @@ func (c *SIPCall) StartReceiveLoop() {
 func (c *SIPCall) StartRTP(
 	localIP string,
 ) error {
-
 	c.mu.Lock()
-
 	if c.closed {
 		c.mu.Unlock()
 		return neurocall.ErrCallClosed
 	}
-
 	if c.RTP != nil {
 		c.mu.Unlock()
 		return nil
 	}
-
 	codec := c.Codec
 	remoteIP := c.RemoteIP
 	remotePort := c.RemotePort
 	localPort := c.LocalRTPPort
-
 	c.mu.Unlock()
-
 	rtp, err := NewRTPSession(
 		localIP,
 		localPort,
@@ -1464,23 +1494,17 @@ func (c *SIPCall) StartRTP(
 		remotePort,
 		codec,
 	)
-
 	if err != nil {
 		return err
 	}
-
 	c.mu.Lock()
-
 	if c.closed {
 		c.mu.Unlock()
 		_ = rtp.Close()
 		return neurocall.ErrCallClosed
 	}
-
 	c.RTP = rtp
-
 	c.mu.Unlock()
-
 	return nil
 }
 func (c *SIPCall) StartAudio(
@@ -1658,7 +1682,7 @@ func NewSIPServer(
 		config:  config,
 		bus:     bus,
 	}
-
+	manager.SetEventBus(bus)
 	if stt != nil {
 		server.stt = NewSTTEngine(stt)
 	}
@@ -1741,7 +1765,15 @@ func (s *SIPServer) Stop() error {
 		cancel()
 	}
 	if conn != nil {
-		return conn.Close()
+		_ = conn.Close()
+	}
+	if s.manager != nil {
+		for _, call := range s.manager.List() {
+			if call == nil {
+				continue
+			}
+			_ = s.manager.Remove(call.CallID)
+		}
 	}
 	return nil
 }
@@ -1790,13 +1822,13 @@ func (s *SIPServer) readLoop(ctx context.Context) {
 			data []byte,
 			remote *net.UDPAddr,
 		) {
-
-			_ = s.handle(
-				ctx,
-				data,
-				remote,
-			)
-
+			if err := s.handle(ctx, data, remote); err != nil {
+				fmt.Printf(
+					"SIP handle error from %s: %v\n",
+					remote,
+					err,
+				)
+			}
 		}(data, remote)
 	}
 }
@@ -2281,14 +2313,10 @@ func (w *STTWorker) SetStreamingSTT(
 
 	w.streaming = stt
 }
-func (w *STTWorker) Push(
-	segment neurocall.AudioSegment,
-) error {
-
+func (w *STTWorker) Push(segment neurocall.AudioSegment) error {
 	if len(segment.Data) == 0 {
 		return neurocall.ErrInvalidAudio
 	}
-
 	w.mu.Lock()
 
 	if w.stopped {
@@ -2789,15 +2817,6 @@ func (c *Conversation) SetMemory(
 	c.memory = memory
 }
 
-// func (c *Conversation) GenerateResponse(
-//     fn func() error,
-// ) error {
-//     c.responseMu.Lock()
-//     defer c.responseMu.Unlock()
-
-//	    return fn()
-//	}
-//
 // Conversation
 // ConversationEngine
 func NewConversationEngine(
@@ -2810,64 +2829,106 @@ func NewConversationEngine(
 		conversations: make(map[string]*Conversation),
 	}
 }
-func (e *ConversationEngine) GetOrCreate(
+func (e *ConversationEngine) SetConversation(
 	callID string,
-) (*Conversation, error) {
+	conversation *Conversation,
+) error {
+	if e == nil {
+		return fmt.Errorf("conversation engine is nil")
+	}
 
 	if callID == "" {
-		return nil, fmt.Errorf("call ID is empty")
+		return fmt.Errorf("call ID is empty")
+	}
+
+	if conversation == nil {
+		return fmt.Errorf("conversation is nil")
 	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if conversation, exists := e.conversations[callID]; exists {
-		return conversation, nil
+	if e.conversations == nil {
+		e.conversations = make(map[string]*Conversation)
 	}
-
-	conversation := NewConversation()
 
 	e.conversations[callID] = conversation
 
+	return nil
+}
+func (e *ConversationEngine) GetOrCreate(
+	callID string,
+) (*Conversation, error) {
+	if e == nil {
+		return nil, fmt.Errorf("conversation engine is nil")
+	}
+	if callID == "" {
+		return nil, fmt.Errorf("call ID is empty")
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.conversations == nil {
+		e.conversations = make(map[string]*Conversation)
+	}
+	if conversation, exists := e.conversations[callID]; exists {
+		return conversation, nil
+	}
+	conversation := NewConversation()
+	e.conversations[callID] = conversation
 	return conversation, nil
+}
+func (e *ConversationEngine) Remove(callID string) error {
+	if e == nil {
+		return fmt.Errorf("conversation engine is nil")
+	}
+
+	if callID == "" {
+		return fmt.Errorf("call ID is empty")
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if _, exists := e.conversations[callID]; !exists {
+		return fmt.Errorf(
+			"conversation not found: %s",
+			callID,
+		)
+	}
+
+	delete(e.conversations, callID)
+
+	return nil
 }
 func (e *ConversationEngine) HandleTranscript(
 	event TranscriptEvent,
 ) error {
-
+	if e == nil {
+		return fmt.Errorf("conversation engine is nil")
+	}
 	if event.CallID == "" {
 		return fmt.Errorf("call ID is empty")
 	}
-
-	text := strings.TrimSpace(
-		event.Transcript.Text,
-	)
-
+	text := strings.TrimSpace(event.Transcript.Text)
 	if text == "" {
 		return nil
 	}
-
-	conversation, err := e.GetOrCreate(
-		event.CallID,
-	)
-
+	conversation, err := e.GetOrCreate(event.CallID)
 	if err != nil {
 		return err
 	}
-
-	message := neurocall.Message{
+	conversation.responseMu.Lock()
+	defer conversation.responseMu.Unlock()
+	conversation.AddMessage(neurocall.Message{
 		Role:    "user",
 		Content: text,
-	}
-
-	conversation.AddMessage(message)
-
-	return e.generateResponse(
+	})
+	return e.generateResponseLocked(
 		event.CallID,
 		conversation,
 	)
 }
-func (e *ConversationEngine) generateResponse(
+func (e *ConversationEngine) generateResponseLocked(
 	callID string,
 	conversation *Conversation,
 ) error {
@@ -2886,7 +2947,6 @@ func (e *ConversationEngine) generateResponse(
 	messages := conversation.Messages()
 
 	response, err := llm.Chat(messages)
-
 	if err != nil {
 		if bus != nil {
 			bus.Publish(Event{

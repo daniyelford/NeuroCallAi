@@ -116,6 +116,7 @@ type CallManager struct {
 	calls    map[string]*SIPCall
 	ports    *PortAllocator
 	sessions map[string]*CallSession
+	bus      *EventBus
 }
 
 // --------------------
@@ -316,16 +317,16 @@ type CallMemory struct {
 	values map[string]any
 }
 type Conversation struct {
-	mu       sync.RWMutex
-	messages []neurocall.Message
-	memory   *CallMemory
-	// responseMu sync.Mutex
+	mu         sync.RWMutex
+	messages   []neurocall.Message
+	memory     *CallMemory
+	responseMu sync.Mutex
 }
 type ConversationEngine struct {
 	mu            sync.RWMutex
 	llm           *LLMEngine
-	conversations map[string]*Conversation
 	bus           *EventBus
+	conversations map[string]*Conversation
 }
 type LLMResponseEvent struct {
 	CallID  string

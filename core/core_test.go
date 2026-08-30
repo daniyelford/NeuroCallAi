@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1073,7 +1074,7 @@ func TestNewCallSession(t *testing.T) {
 		CallID: "test-call-1",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1111,7 +1112,7 @@ func TestCallSessionStart(t *testing.T) {
 		CallID: "test-call-start",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1137,7 +1138,7 @@ func TestCallSessionStartTwice(t *testing.T) {
 		CallID: "test-call-twice",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1162,7 +1163,7 @@ func TestCallSessionContext(t *testing.T) {
 		CallID: "test-context",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1184,7 +1185,7 @@ func TestCallSessionClose(t *testing.T) {
 		CallID: "test-close",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1218,7 +1219,7 @@ func TestCallSessionCloseTwice(t *testing.T) {
 		CallID: "test-close-twice",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1239,7 +1240,7 @@ func TestCallSessionCannotStartAfterClose(t *testing.T) {
 		CallID: "test-start-after-close",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1266,7 +1267,7 @@ func TestCallSessionPushAudioBeforeStart(t *testing.T) {
 		CallID: "test-push-before-start",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1285,7 +1286,7 @@ func TestCallSessionPushAudioWithoutPipeline(t *testing.T) {
 		CallID: "test-no-pipeline",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1305,7 +1306,7 @@ func TestCallSessionPushSTTSegmentWithoutWorker(t *testing.T) {
 		CallID: "test-no-stt-worker",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1334,7 +1335,7 @@ func TestCallSessionSetComponents(t *testing.T) {
 		CallID: "test-components",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1358,7 +1359,7 @@ func TestCallSessionSetMemoryAndTools(t *testing.T) {
 		CallID: "test-memory-tools",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1382,7 +1383,7 @@ func TestCallSessionSetSTTWorker(t *testing.T) {
 		CallID: "test-stt-worker",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1412,7 +1413,7 @@ func TestCallSessionSTTWorkerFlow(t *testing.T) {
 		CallID: "test-stt-flow",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1494,7 +1495,7 @@ func TestCallSessionPushSTTSegmentAfterClose(t *testing.T) {
 		CallID: "test-stt-after-close",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1544,7 +1545,7 @@ func TestCallSessionWithAudioPipeline(t *testing.T) {
 		CallID: "test-audio-pipeline",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1585,7 +1586,7 @@ func TestCallSessionState(t *testing.T) {
 		CallID: "test-call",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 
 	if err != nil {
 		t.Fatal(err)
@@ -7597,7 +7598,7 @@ func TestCallSessionConfigureConversation(t *testing.T) {
 		CallID: "conversation-test-call",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -7623,7 +7624,7 @@ func TestCallSessionConfigureConversation(t *testing.T) {
 	}
 }
 func TestNewCallSessionNilCall(t *testing.T) {
-	session, err := NewCallSession(nil)
+	session, err := NewCallSession(nil, NewEventBus())
 
 	if err == nil {
 		t.Fatal("expected error for nil call")
@@ -7636,7 +7637,7 @@ func TestNewCallSessionNilCall(t *testing.T) {
 func TestNewCallSessionEmptyCallID(t *testing.T) {
 	call := &SIPCall{}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 
 	if err == nil {
 		t.Fatal("expected error for empty CallID")
@@ -7651,7 +7652,7 @@ func TestNewCallSessionInitialState(t *testing.T) {
 		CallID: "new-session-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -7719,7 +7720,7 @@ func TestCallSessionStart2(t *testing.T) {
 		CallID: "session-start-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -7751,7 +7752,7 @@ func TestCallSessionStartIdempotent(t *testing.T) {
 		CallID: "session-start-idempotent-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -7773,7 +7774,7 @@ func TestCallSessionClose2(t *testing.T) {
 		CallID: "session-close-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -7809,7 +7810,7 @@ func TestCallSessionCloseIdempotent(t *testing.T) {
 		CallID: "session-close-idempotent-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -7842,7 +7843,7 @@ func TestCallSessionStartAfterClose(t *testing.T) {
 		CallID: "session-restart-after-close-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -7896,7 +7897,7 @@ func TestCallSessionConfigureVoiceNilEngine(t *testing.T) {
 		CallID: "configure-voice-nil-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -7912,7 +7913,7 @@ func TestCallSessionConfigureVoiceClosed(t *testing.T) {
 		CallID: "configure-voice-closed-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -7937,7 +7938,7 @@ func TestCallSessionConfigureVoice(t *testing.T) {
 		CallID: "configure-voice-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -7967,7 +7968,7 @@ func TestCallSessionConfigureVoiceReplace(t *testing.T) {
 		CallID: "configure-voice-replace-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8016,7 +8017,7 @@ func TestCallSessionConfigureSTTNilWorker(t *testing.T) {
 		CallID: "configure-stt-nil-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8032,7 +8033,7 @@ func TestCallSessionConfigureSTTClosed(t *testing.T) {
 		CallID: "configure-stt-closed-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8057,7 +8058,7 @@ func TestCallSessionConfigureSTT(t *testing.T) {
 		CallID: "configure-stt-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8089,7 +8090,7 @@ func TestCallSessionConfigureSTTReplace(t *testing.T) {
 		CallID: "configure-stt-replace-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8114,7 +8115,7 @@ func TestCallSessionSetSTTWorker2(t *testing.T) {
 		CallID: "set-stt-worker-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8134,7 +8135,7 @@ func TestCallSessionSetSTTWorkerNil(t *testing.T) {
 		CallID: "set-stt-worker-nil-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8152,7 +8153,7 @@ func TestCallSessionSetSTTWorkerClosed(t *testing.T) {
 		CallID: "set-stt-worker-closed-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8187,7 +8188,7 @@ func TestCallSessionAttachSTTEventsClosed(t *testing.T) {
 		CallID: "attach-stt-events-closed-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8208,7 +8209,7 @@ func TestCallSessionAttachSTTEventsNilBus(t *testing.T) {
 		CallID: "attach-stt-events-nil-bus-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8226,7 +8227,7 @@ func TestCallSessionAttachSTTEventsWithoutConversationEngine(t *testing.T) {
 		CallID: "attach-stt-events-no-engine-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8242,7 +8243,7 @@ func TestCallSessionAttachSTTEvents(t *testing.T) {
 		CallID: "attach-stt-events-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8262,7 +8263,7 @@ func TestCallSessionAttachSTTEventsIdempotent(t *testing.T) {
 		CallID: "attach-stt-events-idempotent-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8290,7 +8291,7 @@ func TestCallSessionConfigureConversationAttachesSTTEvents(t *testing.T) {
 		CallID: "conversation-stt-events-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8422,7 +8423,7 @@ func TestCallSessionAttachSTTEventsFiltersCallID(t *testing.T) {
 		CallID: "session-transcript-filter-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -8519,7 +8520,7 @@ func TestCallSessionAttachSTTEventsIgnoresInvalidEventData(t *testing.T) {
 		CallID: "invalid-transcript-event-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9041,7 +9042,7 @@ func TestCallSessionSTTToConversationIntegration(t *testing.T) {
 		CallID: "stt-conversation-integration-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9151,7 +9152,7 @@ func TestCallSessionSTTToConversationIntegration1(t *testing.T) {
 		CallID: "stt-conversation-integration-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9253,7 +9254,7 @@ func TestCallSessionProcessAudioSegmentBeforeStart(t *testing.T) {
 		CallID: "process-segment-before-start-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9280,7 +9281,7 @@ func TestCallSessionProcessAudioSegmentInvalidAudio(t *testing.T) {
 		CallID: "process-segment-invalid-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9301,7 +9302,7 @@ func TestCallSessionProcessAudioSegmentWithoutSTTWorker(t *testing.T) {
 		CallID: "process-segment-no-worker-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9327,7 +9328,7 @@ func TestCallSessionProcessAudioSegment(t *testing.T) {
 		CallID: "process-segment-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9414,7 +9415,7 @@ func TestCallSessionProcessAudioSegmentAfterClose(t *testing.T) {
 		CallID: "process-segment-after-close-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9445,7 +9446,7 @@ func TestCallSessionProcessAudioFrameInvalidAudio(t *testing.T) {
 		CallID: "process-frame-invalid-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9468,7 +9469,7 @@ func TestCallSessionProcessAudioFrameWithoutSegmenter(t *testing.T) {
 		CallID: "process-frame-no-segmenter-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9494,7 +9495,7 @@ func TestCallSessionProcessAudioFrameWithoutSTTWorker(t *testing.T) {
 		CallID: "process-frame-no-worker-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9537,7 +9538,7 @@ func TestCallSessionProcessAudioFrameSilence(t *testing.T) {
 		CallID: "process-frame-silence-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9628,7 +9629,7 @@ func TestCallSessionProcessAudioFrameSpeechProducesTranscript(t *testing.T) {
 		CallID: "process-frame-speech-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9756,7 +9757,7 @@ func TestCallSessionProcessAudioFrameCancelledContext(t *testing.T) {
 		CallID: "process-frame-context-test",
 	}
 
-	session, err := NewCallSession(call)
+	session, err := NewCallSession(call, NewEventBus())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -10484,6 +10485,739 @@ func TestRTPSessionConcurrentWrite(t *testing.T) {
 			"expected %d unique sequences, got %d",
 			writers,
 			len(sequences),
+		)
+	}
+}
+func TestIntegrationSIPRTPSTT(t *testing.T) {
+
+	stt := &integrationSTT{
+		called: make(chan neurocall.AudioSegment, 1),
+	}
+
+	config := SIPConfig{
+		ListenIP:   "127.0.0.1",
+		SIPPort:    0,
+		RTPMinPort: 20000,
+		RTPMaxPort: 20100,
+	}
+
+	server := NewSIPServer(
+		config,
+		nil,
+		nil,
+		stt,
+		nil,
+		nil,
+	)
+
+	ctx, cancel := context.WithCancel(
+		context.Background(),
+	)
+	defer cancel()
+
+	if err := server.Listen(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	defer server.Stop()
+
+	server.mu.RLock()
+	sipAddr := server.conn.LocalAddr().(*net.UDPAddr)
+	server.mu.RUnlock()
+
+	t.Logf(
+		"SIP server listening on %s",
+		sipAddr,
+	)
+
+	if sipAddr.Port == 0 {
+		t.Fatal("SIP server did not receive a port")
+	}
+
+	// ادامه مرحله بعد...
+}
+func TestIntegrationSIPInvite200OK(t *testing.T) {
+	stt := &integrationSTT{
+		called: make(chan neurocall.AudioSegment, 1),
+	}
+
+	config := SIPConfig{
+		ListenIP:   "127.0.0.1",
+		SIPPort:    0,
+		RTPMinPort: 21000,
+		RTPMaxPort: 21100,
+	}
+
+	server := NewSIPServer(
+		config,
+		nil,
+		nil,
+		stt,
+		nil,
+		nil,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := server.Listen(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop()
+
+	server.mu.RLock()
+	sipAddr := server.conn.LocalAddr().(*net.UDPAddr)
+	server.mu.RUnlock()
+
+	client, err := net.ListenUDP(
+		"udp",
+		&net.UDPAddr{
+			IP:   net.ParseIP("127.0.0.1"),
+			Port: 0,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	callID := "integration-invite-200"
+
+	invite := []byte(
+		"INVITE sip:neurocall@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:" +
+			strconv.Itoa(client.LocalAddr().(*net.UDPAddr).Port) +
+			";branch=z9hG4bK-integration\r\n" +
+			"From: <sip:test@127.0.0.1>;tag=test\r\n" +
+			"To: <sip:neurocall@127.0.0.1>\r\n" +
+			"Call-ID: " + callID + "\r\n" +
+			"CSeq: 1 INVITE\r\n" +
+			"Contact: <sip:test@127.0.0.1>\r\n" +
+			"Content-Type: application/sdp\r\n" +
+			"Content-Length: 0\r\n" +
+			"\r\n",
+	)
+
+	// Replace empty SDP with a valid SDP body.
+	body := []byte(
+		"v=0\r\n" +
+			"o=test 1 1 IN IP4 127.0.0.1\r\n" +
+			"s=test\r\n" +
+			"c=IN IP4 127.0.0.1\r\n" +
+			"t=0 0\r\n" +
+			"m=audio 22000 RTP/AVP 0 8\r\n" +
+			"a=rtpmap:0 PCMU/8000/1\r\n" +
+			"a=rtpmap:8 PCMA/8000/1\r\n",
+	)
+
+	invite = []byte(
+		strings.Replace(
+			string(invite),
+			"Content-Length: 0\r\n\r\n",
+			"Content-Length: "+strconv.Itoa(len(body))+"\r\n\r\n"+
+				string(body),
+			1,
+		),
+	)
+
+	if _, err := client.WriteToUDP(invite, sipAddr); err != nil {
+		t.Fatal(err)
+	}
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+	buf := make([]byte, 65535)
+
+	n, _, err := client.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response := string(buf[:n])
+
+	if !strings.HasPrefix(response, "SIP/2.0 100 Trying") {
+		t.Fatalf(
+			"expected 100 Trying, got:\n%s",
+			response,
+		)
+	}
+
+	n, _, err = client.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response = string(buf[:n])
+
+	if !strings.HasPrefix(response, "SIP/2.0 200 OK") {
+		t.Fatalf(
+			"expected 200 OK, got:\n%s",
+			response,
+		)
+	}
+
+	call, err := server.manager.Get(callID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if call == nil {
+		t.Fatal("expected call")
+	}
+
+	if call.Codec.Name != "PCMU" {
+		t.Fatalf(
+			"expected PCMU codec, got %s",
+			call.Codec.Name,
+		)
+	}
+
+	if call.LocalRTPPort == 0 {
+		t.Fatal("expected allocated RTP port")
+	}
+}
+func TestIntegrationSIPInviteACK(t *testing.T) {
+	stt := &integrationSTT{
+		called: make(chan neurocall.AudioSegment, 1),
+	}
+
+	config := SIPConfig{
+		ListenIP:   "127.0.0.1",
+		SIPPort:    0,
+		RTPMinPort: 21200,
+		RTPMaxPort: 21300,
+	}
+
+	server := NewSIPServer(
+		config,
+		nil,
+		nil,
+		stt,
+		nil,
+		nil,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := server.Listen(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop()
+
+	server.mu.RLock()
+	sipAddr := server.conn.LocalAddr().(*net.UDPAddr)
+	server.mu.RUnlock()
+
+	client, err := net.ListenUDP(
+		"udp",
+		&net.UDPAddr{
+			IP:   net.ParseIP("127.0.0.1"),
+			Port: 0,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	callID := "integration-ack"
+
+	sdpBody := []byte(
+		"v=0\r\n" +
+			"o=test 1 1 IN IP4 127.0.0.1\r\n" +
+			"s=test\r\n" +
+			"c=IN IP4 127.0.0.1\r\n" +
+			"t=0 0\r\n" +
+			"m=audio 22001 RTP/AVP 0\r\n" +
+			"a=rtpmap:0 PCMU/8000/1\r\n",
+	)
+
+	invite := buildIntegrationINVITE(
+		callID,
+		client.LocalAddr().(*net.UDPAddr).Port,
+		sdpBody,
+	)
+
+	if _, err := client.WriteToUDP(invite, sipAddr); err != nil {
+		t.Fatal(err)
+	}
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+	buf := make([]byte, 65535)
+
+	// 100 Trying
+	if _, _, err := client.ReadFromUDP(buf); err != nil {
+		t.Fatal(err)
+	}
+
+	// 200 OK
+	n, _, err := client.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response := string(buf[:n])
+
+	if !strings.HasPrefix(response, "SIP/2.0 200 OK") {
+		t.Fatalf(
+			"expected 200 OK, got:\n%s",
+			response,
+		)
+	}
+
+	ack := []byte(
+		"ACK sip:neurocall@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:" +
+			strconv.Itoa(client.LocalAddr().(*net.UDPAddr).Port) +
+			";branch=z9hG4bK-ack\r\n" +
+			"From: <sip:test@127.0.0.1>;tag=test\r\n" +
+			"To: <sip:neurocall@127.0.0.1>\r\n" +
+			"Call-ID: " + callID + "\r\n" +
+			"CSeq: 1 ACK\r\n" +
+			"Content-Length: 0\r\n" +
+			"\r\n",
+	)
+
+	if _, err := client.WriteToUDP(ack, sipAddr); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	call, err := server.manager.Get(callID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !call.Answered() {
+		t.Fatal("expected call to be answered after ACK")
+	}
+
+	session, err := server.manager.GetSession(callID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !session.Running() {
+		t.Fatal("expected session to be running")
+	}
+}
+func TestIntegrationSIPInviteCreatesCall(t *testing.T) {
+	manager := NewCallManager(20000, 20100)
+	codecs := NewCodecRegistry()
+
+	server := NewSIPServer(
+		SIPConfig{
+			ListenIP:   "127.0.0.1",
+			SIPPort:    0,
+			RTPMinPort: 20000,
+			RTPMaxPort: 20100,
+			ExternalIP: "127.0.0.1",
+		},
+		manager,
+		codecs,
+		&FakeSTT{},
+		nil,
+		nil,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := server.Listen(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop()
+
+	server.mu.RLock()
+	conn := server.conn
+	server.mu.RUnlock()
+
+	if conn == nil {
+		t.Fatal("SIP server connection is nil")
+	}
+
+	sipAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	client, err := net.DialUDP(
+		"udp",
+		nil,
+		sipAddr,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	invite := []byte(
+		"INVITE sip:test@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:6000\r\n" +
+			"From: <sip:test@127.0.0.1>\r\n" +
+			"To: <sip:test@127.0.0.1>\r\n" +
+			"Call-ID: integration-test-call\r\n" +
+			"CSeq: 1 INVITE\r\n" +
+			"Content-Type: application/sdp\r\n" +
+			"Content-Length: 96\r\n" +
+			"\r\n" +
+			"v=0\r\n" +
+			"o=test 1 1 IN IP4 127.0.0.1\r\n" +
+			"s=test\r\n" +
+			"c=IN IP4 127.0.0.1\r\n" +
+			"t=0 0\r\n" +
+			"m=audio 9000 RTP/AVP 0\r\n" +
+			"a=rtpmap:0 PCMU/8000/1\r\n",
+	)
+
+	if _, err := client.Write(invite); err != nil {
+		t.Fatal(err)
+	}
+
+	client.SetReadDeadline(
+		time.Now().Add(2 * time.Second),
+	)
+
+	buffer := make([]byte, 65535)
+
+	var response string
+
+	for {
+		n, _, err := client.ReadFromUDP(buffer)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		response = string(buffer[:n])
+
+		if strings.HasPrefix(response, "SIP/2.0 200") {
+			break
+		}
+
+		if strings.HasPrefix(response, "SIP/2.0 503") {
+			t.Fatalf("server returned 503:\n%s", response)
+		}
+
+		if strings.HasPrefix(response, "SIP/2.0 488") {
+			t.Fatalf("server returned 488:\n%s", response)
+		}
+	}
+
+	if !strings.Contains(response, "m=audio") {
+		t.Fatalf("200 OK does not contain SDP:\n%s", response)
+	}
+
+	call, err := manager.Get("integration-test-call")
+	if err != nil {
+		t.Fatalf("call was not created: %v", err)
+	}
+
+	if call.LocalRTPPort == 0 {
+		t.Fatal("expected allocated RTP port")
+	}
+
+	session, err := manager.GetSession("integration-test-call")
+	if err != nil {
+		t.Fatalf("session was not created: %v", err)
+	}
+
+	if session == nil {
+		t.Fatal("session is nil")
+	}
+
+	if !session.Running() {
+		t.Fatal("expected session to be running")
+	}
+
+	if call.Codec.Name != "PCMU" {
+		t.Fatalf(
+			"expected PCMU codec, got %s",
+			call.Codec.Name,
+		)
+	}
+
+	_ = neurocall.Codec{}
+}
+func TestIntegrationSIPACKRTPToSTT(t *testing.T) {
+	manager := NewCallManager(21000, 21100)
+	codecs := NewCodecRegistry()
+	stt := &testSTT{
+		transcribe: func(
+			ctx context.Context,
+			segment neurocall.AudioSegment,
+		) (neurocall.Transcript, error) {
+
+			if len(segment.Data) == 0 {
+				t.Error("STT received empty segment")
+			}
+
+			return neurocall.Transcript{
+				Text: "integration speech",
+			}, nil
+		},
+	}
+
+	server := NewSIPServer(
+		SIPConfig{
+			ListenIP:   "127.0.0.1",
+			SIPPort:    0,
+			RTPMinPort: 21000,
+			RTPMaxPort: 21100,
+			ExternalIP: "127.0.0.1",
+		},
+		manager,
+		codecs,
+		stt,
+		nil,
+		nil,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := server.Listen(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop()
+
+	server.mu.RLock()
+	sipConn := server.conn
+	server.mu.RUnlock()
+
+	if sipConn == nil {
+		t.Fatal("SIP connection is nil")
+	}
+
+	sipAddr := sipConn.LocalAddr().(*net.UDPAddr)
+
+	client, err := net.DialUDP(
+		"udp",
+		nil,
+		sipAddr,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	callID := "integration-ack-rtp-stt"
+
+	sdpBody :=
+		"v=0\r\n" +
+			"o=test 1 1 IN IP4 127.0.0.1\r\n" +
+			"s=test\r\n" +
+			"c=IN IP4 127.0.0.1\r\n" +
+			"t=0 0\r\n" +
+			"m=audio 9000 RTP/AVP 0\r\n" +
+			"a=rtpmap:0 PCMU/8000/1\r\n"
+
+	invite :=
+		"INVITE sip:test@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:6000\r\n" +
+			"From: <sip:test@127.0.0.1>\r\n" +
+			"To: <sip:test@127.0.0.1>\r\n" +
+			"Call-ID: " + callID + "\r\n" +
+			"CSeq: 1 INVITE\r\n" +
+			"Content-Type: application/sdp\r\n" +
+			"Content-Length: " +
+			strconv.Itoa(len(sdpBody)) +
+			"\r\n\r\n" +
+			sdpBody
+
+	if _, err := client.Write([]byte(invite)); err != nil {
+		t.Fatal(err)
+	}
+
+	client.SetReadDeadline(
+		time.Now().Add(2 * time.Second),
+	)
+
+	buffer := make([]byte, 65535)
+
+	var response string
+
+	for {
+		n, _, err := client.ReadFromUDP(buffer)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		response = string(buffer[:n])
+
+		if strings.HasPrefix(response, "SIP/2.0 200") {
+			break
+		}
+
+		if strings.HasPrefix(response, "SIP/2.0 503") {
+			t.Fatalf("received 503:\n%s", response)
+		}
+
+		if strings.HasPrefix(response, "SIP/2.0 488") {
+			t.Fatalf("received 488:\n%s", response)
+		}
+	}
+
+	call, err := manager.Get(callID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if call.LocalRTPPort == 0 {
+		t.Fatal("RTP port was not allocated")
+	}
+
+	session, err := manager.GetSession(callID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	transcriptCh := make(chan TranscriptEvent, 1)
+
+	session.Events.Subscribe(
+		EventTranscript,
+		func(event Event) {
+			data, ok := event.Data.(TranscriptEvent)
+			if !ok {
+				return
+			}
+
+			select {
+			case transcriptCh <- data:
+			default:
+			}
+		},
+	)
+
+	ack :=
+		"ACK sip:test@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:6000\r\n" +
+			"From: <sip:test@127.0.0.1>\r\n" +
+			"To: <sip:test@127.0.0.1>\r\n" +
+			"Call-ID: " + callID + "\r\n" +
+			"CSeq: 1 ACK\r\n" +
+			"Content-Length: 0\r\n\r\n"
+
+	if _, err := client.Write([]byte(ack)); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	if !call.Answered() {
+		t.Fatal("call was not answered after ACK")
+	}
+
+	/*
+		Use the RTP port selected by the SIP server.
+	*/
+	rtpAddr := &net.UDPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: call.LocalRTPPort,
+	}
+
+	rtpClient, err := net.DialUDP(
+		"udp",
+		nil,
+		rtpAddr,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rtpClient.Close()
+
+	/*
+		PCMU payload.
+
+		0x00 is decoded as a strong negative PCM value,
+		which is enough to trigger the energy VAD.
+	*/
+	// Send speech frames.
+	speechPayload := make([]byte, 160)
+
+	for i := range speechPayload {
+		speechPayload[i] = 0x00
+	}
+
+	for seq := uint16(1); seq <= 20; seq++ {
+
+		packet := &RTPPacket{
+			Header: RTPHeader{
+				Version:        2,
+				PayloadType:    0,
+				SequenceNumber: seq,
+				Timestamp:      uint32(seq-1) * 160,
+				SSRC:           12345,
+			},
+			Payload: speechPayload,
+		}
+
+		data, err := packet.Marshal()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := rtpClient.Write(data); err != nil {
+			t.Fatal(err)
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Send silence frames.
+	// PCMU 0xFF decodes close to PCM zero.
+	silencePayload := make([]byte, 160)
+
+	for i := range silencePayload {
+		silencePayload[i] = 0xFF
+	}
+
+	for seq := uint16(21); seq <= 30; seq++ {
+
+		packet := &RTPPacket{
+			Header: RTPHeader{
+				Version:        2,
+				PayloadType:    0,
+				SequenceNumber: seq,
+				Timestamp:      uint32(seq-1) * 160,
+				SSRC:           12345,
+			},
+			Payload: silencePayload,
+		}
+
+		data, err := packet.Marshal()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := rtpClient.Write(data); err != nil {
+			t.Fatal(err)
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	select {
+	case event := <-transcriptCh:
+
+		if event.CallID != callID {
+			t.Fatalf(
+				"expected CallID %q, got %q",
+				callID,
+				event.CallID,
+			)
+		}
+
+		if event.Transcript.Text != "integration speech" {
+			t.Fatalf(
+				"expected transcript %q, got %q",
+				"integration speech",
+				event.Transcript.Text,
+			)
+		}
+
+	case <-time.After(3 * time.Second):
+		t.Fatal(
+			"timed out waiting for TranscriptEvent",
 		)
 	}
 }

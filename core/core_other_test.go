@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strconv"
 	"sync"
 
 	"github.com/daniyelford/NeuroCallAi/pkg/neurocall"
@@ -58,7 +59,47 @@ type testSTT struct {
 		neurocall.AudioSegment,
 	) (neurocall.Transcript, error)
 }
+type integrationSTT struct {
+	called chan neurocall.AudioSegment
+}
 
+func buildIntegrationINVITE(
+	callID string,
+	clientPort int,
+	body []byte,
+) []byte {
+
+	return []byte(
+		"INVITE sip:neurocall@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:" +
+			strconv.Itoa(clientPort) +
+			";branch=z9hG4bK-test\r\n" +
+			"From: <sip:test@127.0.0.1>;tag=test\r\n" +
+			"To: <sip:neurocall@127.0.0.1>\r\n" +
+			"Call-ID: " + callID + "\r\n" +
+			"CSeq: 1 INVITE\r\n" +
+			"Contact: <sip:test@127.0.0.1>\r\n" +
+			"Content-Type: application/sdp\r\n" +
+			"Content-Length: " +
+			strconv.Itoa(len(body)) +
+			"\r\n\r\n" +
+			string(body),
+	)
+}
+func (s *integrationSTT) Transcribe(
+	ctx context.Context,
+	segment neurocall.AudioSegment,
+) (neurocall.Transcript, error) {
+
+	select {
+	case s.called <- segment:
+	default:
+	}
+
+	return neurocall.Transcript{
+		Text: "integration speech detected",
+	}, nil
+}
 func (s *testSTT) Transcribe(
 	ctx context.Context,
 	segment neurocall.AudioSegment,
