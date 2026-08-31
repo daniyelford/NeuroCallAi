@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"sync"
+	"testing"
 
 	"github.com/daniyelford/NeuroCallAi/pkg/neurocall"
 )
@@ -62,7 +63,150 @@ type testSTT struct {
 type integrationSTT struct {
 	called chan neurocall.AudioSegment
 }
+type testPlugin struct {
+	name string
+}
+type testTool struct {
+	name string
+}
+type pipelineTestEncoder struct {
+	output []byte
+}
+type pipelineTestDecoder struct {
+	output []int16
+}
+type pipelineTestResampler struct {
+	output   []int16
+	called   bool
+	fromRate int
+	toRate   int
+}
+type audioProcessorTestVAD struct {
+	speech bool
+	err    error
+	calls  int
+}
+type audioProcessorTestSegmenter struct {
+	segments     []neurocall.AudioSegment
+	processErr   error
+	flushErr     error
+	processCalls int
+	flushCalls   int
+	resetCalls   int
+}
 
+func newAudioProcessorTestWorker(
+	t *testing.T,
+	bus *EventBus,
+) *STTWorker {
+	t.Helper()
+
+	engine := NewSTTEngine(NewFakeSTT())
+
+	worker, err := NewSTTWorker(
+		engine,
+		bus,
+		"audio-processor-test-call",
+		8,
+	)
+	if err != nil {
+		t.Fatalf("NewSTTWorker() error = %v", err)
+	}
+
+	return worker
+}
+func newAudioProcessorTestProcessor(
+	t *testing.T,
+	vad neurocall.VAD,
+	segmenter neurocall.SpeechSegmenter,
+) (*AudioProcessor, *EventBus, *STTWorker) {
+	t.Helper()
+
+	bus := NewEventBus()
+
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		vad,
+		segmenter,
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	return processor, bus, worker
+}
+func validAudioFrame() neurocall.AudioFrame {
+	return neurocall.AudioFrame{
+		Data:       []int16{1000, 1000, 1000},
+		Timestamp:  0,
+		SampleRate: 8000,
+		Channels:   1,
+	}
+}
+func (s *audioProcessorTestSegmenter) Process(
+	ctx context.Context,
+	frame neurocall.AudioFrame,
+) ([]neurocall.AudioSegment, error) {
+	s.processCalls++
+
+	if s.processErr != nil {
+		return nil, s.processErr
+	}
+
+	return append(
+		[]neurocall.AudioSegment(nil),
+		s.segments...,
+	), nil
+}
+func (s *audioProcessorTestSegmenter) Flush(
+	ctx context.Context,
+) ([]neurocall.AudioSegment, error) {
+	s.flushCalls++
+
+	if s.flushErr != nil {
+		return nil, s.flushErr
+	}
+
+	return append(
+		[]neurocall.AudioSegment(nil),
+		s.segments...,
+	), nil
+}
+func (s *audioProcessorTestSegmenter) Reset() {
+	s.resetCalls++
+}
+func (v *audioProcessorTestVAD) Process(
+	ctx context.Context,
+	frame neurocall.AudioFrame,
+) (bool, error) {
+	v.calls++
+
+	if v.err != nil {
+		return false, v.err
+	}
+
+	return v.speech, nil
+}
+func (e pipelineTestEncoder) Encode(pcm []int16) []byte {
+	return e.output
+}
+func (d pipelineTestDecoder) Decode(data []byte) []int16 {
+	return d.output
+}
+func (r *pipelineTestResampler) Resample(
+	input []int16,
+	fromRate int,
+	toRate int,
+) []int16 {
+	r.called = true
+	r.fromRate = fromRate
+	r.toRate = toRate
+
+	return r.output
+}
 func buildIntegrationINVITE(
 	callID string,
 	clientPort int,

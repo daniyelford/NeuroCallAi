@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -1785,7 +1786,7 @@ func TestAudioProcessorSpeech(t *testing.T) {
 		)
 	}
 }
-func TestAudioProcessorFlush(t *testing.T) {
+func TestAudioProcessorFlush2(t *testing.T) {
 
 	bus := NewEventBus()
 
@@ -1888,7 +1889,7 @@ func TestAudioProcessorReset(t *testing.T) {
 		)
 	}
 }
-func TestAudioProcessorInvalidFrame(t *testing.T) {
+func TestAudioProcessorInvalidFrame2(t *testing.T) {
 
 	bus := NewEventBus()
 
@@ -2001,7 +2002,7 @@ func TestAudioProcessorCannotProcessAfterStop(t *testing.T) {
 		t.Fatal("expected error after stop")
 	}
 }
-func TestAudioProcessorContext(t *testing.T) {
+func TestAudioProcessorContext2(t *testing.T) {
 
 	bus := NewEventBus()
 
@@ -11218,6 +11219,2546 @@ func TestIntegrationSIPACKRTPToSTT(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal(
 			"timed out waiting for TranscriptEvent",
+		)
+	}
+}
+func TestNewAudioBuffer(t *testing.T) {
+	t.Run("positive capacity", func(t *testing.T) {
+		b := NewAudioBuffer(10)
+
+		if b == nil {
+			t.Fatal("expected non-nil buffer")
+		}
+
+		if b.capacity != 10 {
+			t.Fatalf("expected capacity 10, got %d", b.capacity)
+		}
+
+		if b.Len() != 0 {
+			t.Fatalf("expected empty buffer, got len=%d", b.Len())
+		}
+	})
+
+	t.Run("negative capacity becomes zero", func(t *testing.T) {
+		b := NewAudioBuffer(-10)
+
+		if b == nil {
+			t.Fatal("expected non-nil buffer")
+		}
+
+		if b.capacity != 0 {
+			t.Fatalf("expected capacity 0, got %d", b.capacity)
+		}
+
+		if b.Len() != 0 {
+			t.Fatalf("expected empty buffer, got len=%d", b.Len())
+		}
+	})
+
+	t.Run("zero capacity", func(t *testing.T) {
+		b := NewAudioBuffer(0)
+
+		if b.capacity != 0 {
+			t.Fatalf("expected capacity 0, got %d", b.capacity)
+		}
+	})
+}
+func TestAudioBufferWrite(t *testing.T) {
+	t.Run("write data", func(t *testing.T) {
+		b := NewAudioBuffer(10)
+
+		input := []int16{1, 2, 3, 4}
+		b.Write(input)
+
+		if b.Len() != 4 {
+			t.Fatalf("expected len 4, got %d", b.Len())
+		}
+
+		got := b.Read(10)
+		want := []int16{1, 2, 3, 4}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("expected %v, got %v", want, got)
+		}
+	})
+
+	t.Run("empty write does nothing", func(t *testing.T) {
+		b := NewAudioBuffer(10)
+
+		b.Write(nil)
+		b.Write([]int16{})
+
+		if b.Len() != 0 {
+			t.Fatalf("expected len 0, got %d", b.Len())
+		}
+	})
+
+	t.Run("capacity limits buffer", func(t *testing.T) {
+		b := NewAudioBuffer(3)
+
+		b.Write([]int16{1, 2, 3, 4, 5})
+
+		if b.Len() != 3 {
+			t.Fatalf("expected len 3, got %d", b.Len())
+		}
+
+		got := b.Read(10)
+		want := []int16{3, 4, 5}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("expected %v, got %v", want, got)
+		}
+	})
+
+	t.Run("capacity zero means unlimited", func(t *testing.T) {
+		b := NewAudioBuffer(0)
+
+		input := []int16{1, 2, 3, 4, 5}
+		b.Write(input)
+
+		if b.Len() != len(input) {
+			t.Fatalf("expected len %d, got %d", len(input), b.Len())
+		}
+	})
+}
+func TestAudioBufferRead(t *testing.T) {
+	t.Run("read requested amount", func(t *testing.T) {
+		b := NewAudioBuffer(10)
+		b.Write([]int16{1, 2, 3, 4, 5})
+
+		got := b.Read(2)
+		want := []int16{1, 2}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("expected %v, got %v", want, got)
+		}
+
+		if b.Len() != 3 {
+			t.Fatalf("expected remaining len 3, got %d", b.Len())
+		}
+	})
+
+	t.Run("read more than available", func(t *testing.T) {
+		b := NewAudioBuffer(10)
+		b.Write([]int16{1, 2, 3})
+
+		got := b.Read(100)
+		want := []int16{1, 2, 3}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("expected %v, got %v", want, got)
+		}
+
+		if b.Len() != 0 {
+			t.Fatalf("expected empty buffer, got len=%d", b.Len())
+		}
+	})
+
+	t.Run("read zero returns nil", func(t *testing.T) {
+		b := NewAudioBuffer(10)
+		b.Write([]int16{1, 2, 3})
+
+		got := b.Read(0)
+
+		if got != nil {
+			t.Fatalf("expected nil, got %v", got)
+		}
+
+		if b.Len() != 3 {
+			t.Fatalf("expected len 3, got %d", b.Len())
+		}
+	})
+
+	t.Run("read negative returns nil", func(t *testing.T) {
+		b := NewAudioBuffer(10)
+		b.Write([]int16{1, 2, 3})
+
+		got := b.Read(-1)
+
+		if got != nil {
+			t.Fatalf("expected nil, got %v", got)
+		}
+
+		if b.Len() != 3 {
+			t.Fatalf("expected len 3, got %d", b.Len())
+		}
+	})
+
+	t.Run("read empty buffer returns nil", func(t *testing.T) {
+		b := NewAudioBuffer(10)
+
+		got := b.Read(10)
+
+		if got != nil {
+			t.Fatalf("expected nil, got %v", got)
+		}
+	})
+
+	t.Run("read removes data from buffer", func(t *testing.T) {
+		b := NewAudioBuffer(10)
+		b.Write([]int16{1, 2, 3, 4})
+
+		first := b.Read(2)
+		second := b.Read(2)
+
+		if !reflect.DeepEqual(first, []int16{1, 2}) {
+			t.Fatalf("unexpected first read: %v", first)
+		}
+
+		if !reflect.DeepEqual(second, []int16{3, 4}) {
+			t.Fatalf("unexpected second read: %v", second)
+		}
+
+		if b.Len() != 0 {
+			t.Fatalf("expected empty buffer, got len=%d", b.Len())
+		}
+	})
+}
+func TestAudioBufferClear(t *testing.T) {
+	b := NewAudioBuffer(10)
+
+	b.Write([]int16{1, 2, 3, 4, 5})
+
+	if b.Len() != 5 {
+		t.Fatalf("expected len 5, got %d", b.Len())
+	}
+
+	b.Clear()
+
+	if b.Len() != 0 {
+		t.Fatalf("expected len 0 after Clear, got %d", b.Len())
+	}
+
+	if got := b.Read(10); got != nil {
+		t.Fatalf("expected nil after Clear, got %v", got)
+	}
+}
+func TestAudioBufferReadReturnsIndependentCopy(t *testing.T) {
+	b := NewAudioBuffer(10)
+
+	b.Write([]int16{1, 2, 3})
+
+	got := b.Read(3)
+
+	if !reflect.DeepEqual(got, []int16{1, 2, 3}) {
+		t.Fatalf("unexpected read result: %v", got)
+	}
+
+	// Modify returned slice.
+	got[0] = 999
+
+	// Buffer is already consumed, so this mainly verifies that
+	// Read allocated a separate output slice rather than exposing
+	// the internal backing array.
+	if got[0] != 999 {
+		t.Fatal("expected returned slice to be writable")
+	}
+}
+func TestShutdownManager(t *testing.T) {
+	manager := NewShutdownManager()
+
+	if manager == nil {
+		t.Fatal("expected manager")
+	}
+
+	called := 0
+
+	manager.Register(func() error {
+		called++
+		return nil
+	})
+
+	if err := manager.Shutdown(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if called != 1 {
+		t.Fatalf("expected handler to be called once, got %d", called)
+	}
+
+	// Shutdown باید idempotent باشد.
+	if err := manager.Shutdown(); err != nil {
+		t.Fatalf("unexpected second shutdown error: %v", err)
+	}
+
+	if called != 1 {
+		t.Fatalf("handler called more than once: %d", called)
+	}
+}
+func TestShutdownManagerRegisterNil(t *testing.T) {
+	manager := NewShutdownManager()
+
+	manager.Register(nil)
+
+	if err := manager.Shutdown(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+func TestShutdownManagerError(t *testing.T) {
+	manager := NewShutdownManager()
+
+	expectedErr := errors.New("shutdown failed")
+
+	manager.Register(func() error {
+		return expectedErr
+	})
+
+	err := manager.Shutdown()
+
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected %v, got %v", expectedErr, err)
+	}
+}
+func TestShutdownManagerFirstError(t *testing.T) {
+	manager := NewShutdownManager()
+
+	firstErr := errors.New("first")
+	secondErr := errors.New("second")
+
+	manager.Register(func() error {
+		return firstErr
+	})
+
+	manager.Register(func() error {
+		return secondErr
+	})
+
+	err := manager.Shutdown()
+
+	if !errors.Is(err, firstErr) {
+		t.Fatalf("expected first error %v, got %v", firstErr, err)
+	}
+}
+func TestContainer(t *testing.T) {
+	container := NewContainer()
+
+	if container == nil {
+		t.Fatal("expected container")
+	}
+
+	service := "hello"
+
+	container.Set("test", service)
+
+	value, ok := container.Get("test")
+
+	if !ok {
+		t.Fatal("expected service to exist")
+	}
+
+	if value != service {
+		t.Fatalf("expected %v, got %v", service, value)
+	}
+}
+func TestContainerGetMissing(t *testing.T) {
+	container := NewContainer()
+
+	value, ok := container.Get("missing")
+
+	if ok {
+		t.Fatal("expected service to be missing")
+	}
+
+	if value != nil {
+		t.Fatalf("expected nil value, got %v", value)
+	}
+}
+func TestMapMemory(t *testing.T) {
+	memory := NewMemory()
+
+	if memory == nil {
+		t.Fatal("expected memory")
+	}
+
+	// Set
+	memory.Set("name", "Daniyal")
+
+	// Get
+	value, ok := memory.Get("name")
+
+	if !ok {
+		t.Fatal("expected value to exist")
+	}
+
+	if value != "Daniyal" {
+		t.Fatalf("expected Daniyal, got %v", value)
+	}
+
+	// Delete
+	memory.Delete("name")
+
+	_, ok = memory.Get("name")
+
+	if ok {
+		t.Fatal("expected value to be deleted")
+	}
+
+	// Set multiple
+	memory.Set("a", 1)
+	memory.Set("b", 2)
+
+	// Clear
+	memory.Clear()
+
+	_, ok = memory.Get("a")
+	if ok {
+		t.Fatal("expected memory to be cleared")
+	}
+
+	_, ok = memory.Get("b")
+	if ok {
+		t.Fatal("expected memory to be cleared")
+	}
+}
+func TestMapMemorySetEmptyKey(t *testing.T) {
+	memory := NewMemory()
+
+	memory.Set("", "value")
+
+	_, ok := memory.Get("")
+
+	if ok {
+		t.Fatal("empty key should not be stored")
+	}
+}
+func (p *testPlugin) Name() string {
+	return p.name
+}
+func (p *testPlugin) Init(c *Container) error {
+	return nil
+}
+func (p *testPlugin) Start(ctx context.Context) error {
+	return nil
+}
+func (p *testPlugin) Stop(ctx context.Context) error {
+	return nil
+}
+func TestPluginRegistry(t *testing.T) {
+	registry := NewPluginRegistry()
+
+	if registry == nil {
+		t.Fatal("expected registry")
+	}
+
+	plugin := &testPlugin{
+		name: "test-plugin",
+	}
+
+	if err := registry.Register(plugin); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, ok := registry.Get("test-plugin")
+
+	if !ok {
+		t.Fatal("expected plugin to exist")
+	}
+
+	gotPlugin, ok := got.(*testPlugin)
+
+	if !ok {
+		t.Fatal("expected *testPlugin")
+	}
+
+	if gotPlugin != plugin {
+		t.Fatal("returned plugin is not the registered plugin")
+	}
+
+	list := registry.List()
+
+	if len(list) != 1 {
+		t.Fatalf("expected 1 plugin, got %d", len(list))
+	}
+}
+func TestPluginRegistryEmptyName(t *testing.T) {
+	registry := NewPluginRegistry()
+
+	plugin := &testPlugin{}
+
+	err := registry.Register(plugin)
+
+	if err == nil {
+		t.Fatal("expected error for empty plugin name")
+	}
+}
+func TestPluginRegistryDuplicate(t *testing.T) {
+	registry := NewPluginRegistry()
+
+	plugin := &testPlugin{
+		name: "test",
+	}
+
+	if err := registry.Register(plugin); err != nil {
+		t.Fatal(err)
+	}
+
+	err := registry.Register(plugin)
+
+	if err == nil {
+		t.Fatal("expected duplicate registration error")
+	}
+}
+func TestPluginRegistryNil(t *testing.T) {
+	registry := NewPluginRegistry()
+
+	err := registry.Register(nil)
+
+	if err == nil {
+		t.Fatal("expected error for nil plugin")
+	}
+}
+func (t *testTool) Name() string {
+	return t.name
+}
+func (t *testTool) Description() string {
+	return "test tool"
+}
+func (t *testTool) Call(args map[string]any) (any, error) {
+	return args["value"], nil
+}
+func TestToolRegistry(t *testing.T) {
+	registry := NewToolRegistry()
+
+	if registry == nil {
+		t.Fatal("expected registry")
+	}
+
+	tool := &testTool{
+		name: "echo",
+	}
+
+	if err := registry.Register(tool); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, ok := registry.Get("echo")
+
+	if !ok {
+		t.Fatal("expected tool to exist")
+	}
+
+	gotTool, ok := got.(*testTool)
+
+	if !ok {
+		t.Fatal("expected *testTool")
+	}
+
+	if gotTool != tool {
+		t.Fatal("returned tool is not the registered tool")
+	}
+
+	list := registry.List()
+
+	if len(list) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(list))
+	}
+
+	result, err := registry.Call(
+		"echo",
+		map[string]any{
+			"value": "hello",
+		},
+	)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result != "hello" {
+		t.Fatalf("expected hello, got %v", result)
+	}
+}
+func TestToolRegistryMissing(t *testing.T) {
+	registry := NewToolRegistry()
+
+	_, err := registry.Call("missing", nil)
+
+	if !errors.Is(err, neurocall.ErrToolNotFound) {
+		t.Fatalf(
+			"expected ErrToolNotFound, got %v",
+			err,
+		)
+	}
+}
+func TestToolRegistryInvalid(t *testing.T) {
+	registry := NewToolRegistry()
+
+	if err := registry.Register(nil); err == nil {
+		t.Fatal("expected nil tool error")
+	}
+
+	tool := &testTool{}
+
+	if err := registry.Register(tool); err == nil {
+		t.Fatal("expected empty name error")
+	}
+}
+func TestToolRegistryDuplicate(t *testing.T) {
+	registry := NewToolRegistry()
+
+	tool := &testTool{
+		name: "echo",
+	}
+
+	if err := registry.Register(tool); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := registry.Register(tool); err == nil {
+		t.Fatal("expected duplicate registration error")
+	}
+}
+func TestNewPluginGraph(t *testing.T) {
+	g := NewPluginGraph()
+
+	if g == nil {
+		t.Fatal("expected non-nil PluginGraph")
+	}
+
+	if g.dependencies == nil {
+		t.Fatal("expected initialized dependencies map")
+	}
+}
+func TestPluginGraphAddDependency(t *testing.T) {
+	g := NewPluginGraph()
+
+	g.AddDependency("plugin-a", "plugin-b")
+
+	deps := g.Dependencies("plugin-a")
+
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 dependency, got %d", len(deps))
+	}
+
+	if deps[0] != "plugin-b" {
+		t.Fatalf(
+			"expected dependency plugin-b, got %s",
+			deps[0],
+		)
+	}
+}
+func TestPluginGraphMultipleDependencies(t *testing.T) {
+	g := NewPluginGraph()
+
+	g.AddDependency("plugin-a", "plugin-b")
+	g.AddDependency("plugin-a", "plugin-c")
+	g.AddDependency("plugin-a", "plugin-d")
+
+	deps := g.Dependencies("plugin-a")
+
+	expected := []string{
+		"plugin-b",
+		"plugin-c",
+		"plugin-d",
+	}
+
+	if len(deps) != len(expected) {
+		t.Fatalf(
+			"expected %d dependencies, got %d",
+			len(expected),
+			len(deps),
+		)
+	}
+
+	for i, want := range expected {
+		if deps[i] != want {
+			t.Fatalf(
+				"dependency %d: expected %s, got %s",
+				i,
+				want,
+				deps[i],
+			)
+		}
+	}
+}
+func TestPluginGraphDependenciesUnknownPlugin(t *testing.T) {
+	g := NewPluginGraph()
+
+	deps := g.Dependencies("unknown")
+
+	if deps != nil {
+		t.Fatalf(
+			"expected nil dependencies, got %#v",
+			deps,
+		)
+	}
+}
+func TestPluginGraphDependenciesReturnsCopy(t *testing.T) {
+	g := NewPluginGraph()
+
+	g.AddDependency("plugin-a", "plugin-b")
+	g.AddDependency("plugin-a", "plugin-c")
+
+	deps := g.Dependencies("plugin-a")
+
+	deps[0] = "modified"
+
+	original := g.Dependencies("plugin-a")
+
+	if original[0] != "plugin-b" {
+		t.Fatalf(
+			"internal dependency was modified: got %s",
+			original[0],
+		)
+	}
+}
+func TestPluginGraphConcurrent(t *testing.T) {
+	g := NewPluginGraph()
+
+	const workers = 10
+	const dependenciesPerWorker = 10
+
+	var wg sync.WaitGroup
+
+	wg.Add(workers)
+
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+
+			for j := 0; j < dependenciesPerWorker; j++ {
+				g.AddDependency("plugin-a", "dependency")
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	deps := g.Dependencies("plugin-a")
+
+	expected := workers * dependenciesPerWorker
+
+	if len(deps) != expected {
+		t.Fatalf(
+			"expected %d dependencies, got %d",
+			expected,
+			len(deps),
+		)
+	}
+}
+func TestAudioPipelineDecode(t *testing.T) {
+	p := NewAudioPipeline(AudioConfig{
+		BufferSize: 4,
+	})
+
+	// decoder وجود ندارد
+	_, err := p.Decode([]byte{1, 2, 3})
+	if err != neurocall.ErrInvalidAudio {
+		t.Fatalf(
+			"expected ErrInvalidAudio, got %v",
+			err,
+		)
+	}
+
+	// input خالی
+	p.SetDecoder(
+		pipelineTestDecoder{
+			output: []int16{10, 20},
+		},
+	)
+
+	_, err = p.Decode(nil)
+	if err != neurocall.ErrInvalidAudio {
+		t.Fatalf(
+			"expected ErrInvalidAudio for empty input, got %v",
+			err,
+		)
+	}
+
+	// decode موفق
+	got, err := p.Decode([]byte{1, 2, 3})
+	if err != nil {
+		t.Fatalf(
+			"unexpected error: %v",
+			err,
+		)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf(
+			"expected 2 PCM samples, got %d",
+			len(got),
+		)
+	}
+
+	if got[0] != 10 || got[1] != 20 {
+		t.Fatalf(
+			"unexpected decoded PCM: %v",
+			got,
+		)
+	}
+}
+func TestAudioPipelineEncode(t *testing.T) {
+	p := NewAudioPipeline(AudioConfig{
+		BufferSize: 4,
+	})
+
+	// encoder وجود ندارد
+	_, err := p.Encode([]int16{1, 2, 3})
+	if err != neurocall.ErrInvalidAudio {
+		t.Fatalf(
+			"expected ErrInvalidAudio, got %v",
+			err,
+		)
+	}
+
+	// encoder تنظیم می‌کنیم
+	p.SetEncoder(
+		pipelineTestEncoder{
+			output: []byte{10, 20, 30},
+		},
+	)
+
+	// PCM خالی
+	_, err = p.Encode(nil)
+	if err != neurocall.ErrInvalidAudio {
+		t.Fatalf(
+			"expected ErrInvalidAudio for empty PCM, got %v",
+			err,
+		)
+	}
+
+	// encode موفق
+	got, err := p.Encode([]int16{1, 2, 3})
+	if err != nil {
+		t.Fatalf(
+			"unexpected error: %v",
+			err,
+		)
+	}
+
+	if len(got) != 3 {
+		t.Fatalf(
+			"expected 3 encoded bytes, got %d",
+			len(got),
+		)
+	}
+
+	if got[0] != 10 ||
+		got[1] != 20 ||
+		got[2] != 30 {
+		t.Fatalf(
+			"unexpected encoded data: %v",
+			got,
+		)
+	}
+}
+func TestAudioPipelineResampler(t *testing.T) {
+	p := NewAudioPipeline(AudioConfig{
+		BufferSize: 4,
+	})
+
+	input := []int16{1, 2, 3}
+
+	// resampler وجود ندارد
+	got := p.Resample(input, 8000, 16000)
+
+	if len(got) != len(input) {
+		t.Fatalf(
+			"expected original input when resampler is nil",
+		)
+	}
+
+	// نرخ‌ها یکسان هستند
+	resampler := &pipelineTestResampler{
+		output: []int16{10, 20, 30, 40},
+	}
+
+	p.SetResampler(resampler)
+
+	got = p.Resample(input, 8000, 8000)
+
+	if resampler.called {
+		t.Fatal(
+			"resampler should not be called when rates are equal",
+		)
+	}
+
+	if len(got) != len(input) {
+		t.Fatalf(
+			"expected original input when rates are equal, got %v",
+			got,
+		)
+	}
+
+	// resampling واقعی
+	got = p.Resample(input, 8000, 16000)
+
+	if !resampler.called {
+		t.Fatal("expected resampler to be called")
+	}
+
+	if resampler.fromRate != 8000 {
+		t.Fatalf(
+			"expected fromRate 8000, got %d",
+			resampler.fromRate,
+		)
+	}
+
+	if resampler.toRate != 16000 {
+		t.Fatalf(
+			"expected toRate 16000, got %d",
+			resampler.toRate,
+		)
+	}
+
+	if len(got) != 4 {
+		t.Fatalf(
+			"expected 4 resampled samples, got %d",
+			len(got),
+		)
+	}
+}
+func TestNewAudioProcessor(t *testing.T) {
+	vad := &audioProcessorTestVAD{
+		speech: true,
+	}
+
+	segmenter := &audioProcessorTestSegmenter{}
+
+	bus := NewEventBus()
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		vad,
+		segmenter,
+		worker,
+		bus,
+	)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if processor == nil {
+		t.Fatal("expected processor, got nil")
+	}
+
+	if processor.Context() == nil {
+		t.Fatal("expected non-nil context")
+	}
+
+	if processor.VAD() != vad {
+		t.Fatal("VAD was not stored")
+	}
+
+	if processor.Segmenter() != segmenter {
+		t.Fatal("segmenter was not stored")
+	}
+
+	if processor.Worker() != worker {
+		t.Fatal("worker was not stored")
+	}
+
+	if processor.Running() {
+		t.Fatal("processor should not be running initially")
+	}
+
+	if processor.Closed() {
+		t.Fatal("processor should not be closed initially")
+	}
+}
+func TestNewAudioProcessorNilDependencies(t *testing.T) {
+	bus := NewEventBus()
+	worker := newAudioProcessorTestWorker(t, bus)
+	vad := &audioProcessorTestVAD{}
+	segmenter := &audioProcessorTestSegmenter{}
+
+	tests := []struct {
+		name      string
+		vad       neurocall.VAD
+		segmenter neurocall.SpeechSegmenter
+		worker    *STTWorker
+		bus       *EventBus
+	}{
+		{
+			name:      "nil VAD",
+			vad:       nil,
+			segmenter: segmenter,
+			worker:    worker,
+			bus:       bus,
+		},
+		{
+			name:      "nil segmenter",
+			vad:       vad,
+			segmenter: nil,
+			worker:    worker,
+			bus:       bus,
+		},
+		{
+			name:      "nil worker",
+			vad:       vad,
+			segmenter: segmenter,
+			worker:    nil,
+			bus:       bus,
+		},
+		{
+			name:      "nil event bus",
+			vad:       vad,
+			segmenter: segmenter,
+			worker:    worker,
+			bus:       nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			processor, err := NewAudioProcessor(
+				tt.vad,
+				tt.segmenter,
+				tt.worker,
+				tt.bus,
+			)
+
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+
+			if processor != nil {
+				t.Fatal("expected nil processor")
+			}
+		})
+	}
+}
+func TestAudioProcessorStart2(t *testing.T) {
+	vad := &audioProcessorTestVAD{speech: true}
+	segmenter := &audioProcessorTestSegmenter{}
+
+	processor, _, worker := newAudioProcessorTestProcessor(
+		t,
+		vad,
+		segmenter,
+	)
+
+	defer worker.Stop()
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if !processor.Running() {
+		t.Fatal("processor should be running")
+	}
+
+	if processor.Closed() {
+		t.Fatal("processor should not be closed")
+	}
+
+	// Starting twice should be harmless.
+	if err := processor.Start(); err != nil {
+		t.Fatalf("second Start() error = %v", err)
+	}
+
+	if !processor.Running() {
+		t.Fatal("processor should still be running")
+	}
+}
+func TestAudioProcessorStartNilReceiver(t *testing.T) {
+	var processor *AudioProcessor
+
+	err := processor.Start()
+
+	if !errors.Is(err, neurocall.ErrCallClosed) {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestAudioProcessorStartAfterStop(t *testing.T) {
+	vad := &audioProcessorTestVAD{speech: true}
+	segmenter := &audioProcessorTestSegmenter{}
+
+	processor, _, worker := newAudioProcessorTestProcessor(
+		t,
+		vad,
+		segmenter,
+	)
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if err := processor.Stop(); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	err := processor.Start()
+
+	if !errors.Is(err, neurocall.ErrCallClosed) {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+
+	if processor.Running() {
+		t.Fatal("processor should not be running")
+	}
+
+	_ = worker
+}
+func TestAudioProcessorStartWorkerError(t *testing.T) {
+	bus := NewEventBus()
+
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	// Stopping the worker makes its Start() return ErrCallClosed.
+	worker.Stop()
+
+	processor, err := NewAudioProcessor(
+		&audioProcessorTestVAD{speech: true},
+		&audioProcessorTestSegmenter{},
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	err = processor.Start()
+
+	if !errors.Is(err, neurocall.ErrCallClosed) {
+		t.Fatalf(
+			"expected ErrCallClosed from worker, got %v",
+			err,
+		)
+	}
+
+	if processor.Running() {
+		t.Fatal("processor should not remain running after worker start failure")
+	}
+}
+func TestAudioProcessorStop(t *testing.T) {
+	vad := &audioProcessorTestVAD{speech: true}
+	segmenter := &audioProcessorTestSegmenter{}
+
+	processor, _, worker := newAudioProcessorTestProcessor(
+		t,
+		vad,
+		segmenter,
+	)
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if err := processor.Stop(); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	if !processor.Closed() {
+		t.Fatal("processor should be closed")
+	}
+
+	if processor.Running() {
+		t.Fatal("processor should not be running")
+	}
+
+	// Stop should be idempotent.
+	if err := processor.Stop(); err != nil {
+		t.Fatalf("second Stop() error = %v", err)
+	}
+
+	_ = worker
+}
+func TestAudioProcessorStopNilReceiver(t *testing.T) {
+	var processor *AudioProcessor
+
+	if err := processor.Stop(); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+}
+func TestAudioProcessorStateGetters(t *testing.T) {
+	vad1 := &audioProcessorTestVAD{}
+	vad2 := &audioProcessorTestVAD{}
+
+	segmenter1 := &audioProcessorTestSegmenter{}
+	segmenter2 := &audioProcessorTestSegmenter{}
+
+	bus := NewEventBus()
+
+	worker1 := newAudioProcessorTestWorker(t, bus)
+	worker2 := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		vad1,
+		segmenter1,
+		worker1,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	if err := processor.SetVAD(vad2); err != nil {
+		t.Fatalf("SetVAD() error = %v", err)
+	}
+
+	if processor.VAD() != vad2 {
+		t.Fatal("VAD getter returned wrong value")
+	}
+
+	if err := processor.SetSegmenter(segmenter2); err != nil {
+		t.Fatalf("SetSegmenter() error = %v", err)
+	}
+
+	if processor.Segmenter() != segmenter2 {
+		t.Fatal("Segmenter getter returned wrong value")
+	}
+
+	if err := processor.SetWorker(worker2); err != nil {
+		t.Fatalf("SetWorker() error = %v", err)
+	}
+
+	if processor.Worker() != worker2 {
+		t.Fatal("Worker getter returned wrong value")
+	}
+
+	worker1.Stop()
+	worker2.Stop()
+}
+func TestAudioProcessorSettersNil(t *testing.T) {
+	vad := &audioProcessorTestVAD{}
+	segmenter := &audioProcessorTestSegmenter{}
+
+	bus := NewEventBus()
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		vad,
+		segmenter,
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	if err := processor.SetVAD(nil); err == nil {
+		t.Fatal("expected SetVAD(nil) error")
+	}
+
+	if err := processor.SetSegmenter(nil); err == nil {
+		t.Fatal("expected SetSegmenter(nil) error")
+	}
+
+	if err := processor.SetWorker(nil); err == nil {
+		t.Fatal("expected SetWorker(nil) error")
+	}
+
+	worker.Stop()
+}
+func TestAudioProcessorSettersAfterStop(t *testing.T) {
+	vad := &audioProcessorTestVAD{}
+	segmenter := &audioProcessorTestSegmenter{}
+
+	bus := NewEventBus()
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		vad,
+		segmenter,
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	if err := processor.Stop(); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	if err := processor.SetVAD(&audioProcessorTestVAD{}); !errors.Is(
+		err,
+		neurocall.ErrCallClosed,
+	) {
+		t.Fatalf("expected ErrCallClosed from SetVAD, got %v", err)
+	}
+
+	if err := processor.SetSegmenter(
+		&audioProcessorTestSegmenter{},
+	); !errors.Is(err, neurocall.ErrCallClosed) {
+		t.Fatalf(
+			"expected ErrCallClosed from SetSegmenter, got %v",
+			err,
+		)
+	}
+
+	if err := processor.SetWorker(worker); !errors.Is(
+		err,
+		neurocall.ErrCallClosed,
+	) {
+		t.Fatalf(
+			"expected ErrCallClosed from SetWorker, got %v",
+			err,
+		)
+	}
+}
+func TestAudioProcessorContext(t *testing.T) {
+	vad := &audioProcessorTestVAD{}
+	segmenter := &audioProcessorTestSegmenter{}
+
+	processor, _, worker := newAudioProcessorTestProcessor(
+		t,
+		vad,
+		segmenter,
+	)
+
+	ctx := processor.Context()
+
+	if ctx == nil {
+		t.Fatal("Context() returned nil")
+	}
+
+	select {
+	case <-ctx.Done():
+		t.Fatal("context should not be cancelled initially")
+	default:
+	}
+
+	if err := processor.Stop(); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	select {
+	case <-ctx.Done():
+		// expected
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("processor context was not cancelled")
+	}
+
+	_ = worker
+}
+func TestAudioProcessorNilContext(t *testing.T) {
+	var processor *AudioProcessor
+
+	ctx := processor.Context()
+
+	if ctx == nil {
+		t.Fatal("expected non-nil background context")
+	}
+
+	select {
+	case <-ctx.Done():
+		t.Fatal("background context should not be cancelled")
+	default:
+	}
+}
+func TestAudioProcessorProcessFrameNilReceiver(t *testing.T) {
+	var processor *AudioProcessor
+
+	err := processor.ProcessFrame(validAudioFrame())
+
+	if !errors.Is(err, neurocall.ErrCallClosed) {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestAudioProcessorInvalidFrame(t *testing.T) {
+	vad := &audioProcessorTestVAD{}
+	segmenter := &audioProcessorTestSegmenter{}
+
+	processor, _, worker := newAudioProcessorTestProcessor(
+		t,
+		vad,
+		segmenter,
+	)
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		frame neurocall.AudioFrame
+	}{
+		{
+			name: "empty data",
+			frame: neurocall.AudioFrame{
+				SampleRate: 8000,
+				Channels:   1,
+			},
+		},
+		{
+			name: "invalid sample rate",
+			frame: neurocall.AudioFrame{
+				Data:       []int16{100},
+				SampleRate: 0,
+				Channels:   1,
+			},
+		},
+		{
+			name: "invalid channels",
+			frame: neurocall.AudioFrame{
+				Data:       []int16{100},
+				SampleRate: 8000,
+				Channels:   0,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := processor.ProcessFrame(tt.frame)
+
+			if !errors.Is(err, neurocall.ErrInvalidAudio) {
+				t.Fatalf(
+					"expected ErrInvalidAudio, got %v",
+					err,
+				)
+			}
+		})
+	}
+
+	processor.Stop()
+	_ = worker
+}
+func TestAudioProcessorCannotProcessBeforeStart(t *testing.T) {
+	vad := &audioProcessorTestVAD{speech: true}
+	segmenter := &audioProcessorTestSegmenter{}
+
+	processor, _, worker := newAudioProcessorTestProcessor(
+		t,
+		vad,
+		segmenter,
+	)
+
+	err := processor.ProcessFrame(validAudioFrame())
+
+	if !errors.Is(err, neurocall.ErrCallClosed) {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+
+	worker.Stop()
+}
+func TestAudioProcessorCannotProcessAfterStop2(t *testing.T) {
+	vad := &audioProcessorTestVAD{speech: true}
+	segmenter := &audioProcessorTestSegmenter{}
+
+	processor, _, worker := newAudioProcessorTestProcessor(
+		t,
+		vad,
+		segmenter,
+	)
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if err := processor.Stop(); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	err := processor.ProcessFrame(validAudioFrame())
+
+	if !errors.Is(err, neurocall.ErrCallClosed) {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+
+	_ = worker
+}
+func TestAudioProcessorVADNotConfigured(t *testing.T) {
+	bus := NewEventBus()
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		&audioProcessorTestVAD{},
+		&audioProcessorTestSegmenter{},
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	processor.vad = nil
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	err = processor.ProcessFrame(validAudioFrame())
+
+	if err == nil {
+		t.Fatal("expected VAD configuration error")
+	}
+
+	processor.Stop()
+}
+func TestAudioProcessorSegmenterNotConfigured(t *testing.T) {
+	vad := &audioProcessorTestVAD{
+		speech: true,
+	}
+
+	segmenter := &audioProcessorTestSegmenter{}
+
+	processor, _, worker := newAudioProcessorTestProcessor(
+		t,
+		vad,
+		segmenter,
+	)
+
+	processor.segmenter = nil
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	err := processor.ProcessFrame(validAudioFrame())
+
+	if err == nil {
+		t.Fatal("expected segmenter configuration error")
+	}
+
+	processor.Stop()
+	_ = worker
+}
+func TestAudioProcessorWorkerNotConfigured(t *testing.T) {
+	vad := &audioProcessorTestVAD{
+		speech: true,
+	}
+
+	segmenter := &audioProcessorTestSegmenter{}
+
+	bus := NewEventBus()
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		vad,
+		segmenter,
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	processor.worker = nil
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	err = processor.ProcessFrame(validAudioFrame())
+
+	if err == nil {
+		t.Fatal("expected worker configuration error")
+	}
+}
+func TestAudioProcessorSilence2(t *testing.T) {
+	vad := &audioProcessorTestVAD{
+		speech: false,
+	}
+
+	segmenter := &audioProcessorTestSegmenter{}
+
+	processor, _, worker := newAudioProcessorTestProcessor(
+		t,
+		vad,
+		segmenter,
+	)
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	err := processor.ProcessFrame(validAudioFrame())
+	if err != nil {
+		t.Fatalf("ProcessFrame() error = %v", err)
+	}
+
+	if vad.calls != 1 {
+		t.Fatalf(
+			"expected VAD to be called once, got %d",
+			vad.calls,
+		)
+	}
+
+	if segmenter.processCalls != 0 {
+		t.Fatalf(
+			"segmenter should not be called for silence, got %d",
+			segmenter.processCalls,
+		)
+	}
+
+	processor.Stop()
+	_ = worker
+}
+func TestAudioProcessorSpeechWithoutSegments(t *testing.T) {
+	vad := &audioProcessorTestVAD{
+		speech: true,
+	}
+
+	segmenter := &audioProcessorTestSegmenter{}
+
+	processor, _, worker := newAudioProcessorTestProcessor(
+		t,
+		vad,
+		segmenter,
+	)
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	err := processor.ProcessFrame(validAudioFrame())
+	if err != nil {
+		t.Fatalf("ProcessFrame() error = %v", err)
+	}
+
+	if vad.calls != 1 {
+		t.Fatalf(
+			"expected VAD to be called once, got %d",
+			vad.calls,
+		)
+	}
+
+	if segmenter.processCalls != 1 {
+		t.Fatalf(
+			"expected segmenter to be called once, got %d",
+			segmenter.processCalls,
+		)
+	}
+
+	processor.Stop()
+	_ = worker
+}
+func TestAudioProcessorProcessFrame(t *testing.T) {
+	vad := &audioProcessorTestVAD{
+		speech: true,
+	}
+
+	segment := neurocall.AudioSegment{
+		Data:       []int16{100, 200, 300},
+		SampleRate: 8000,
+		Channels:   1,
+	}
+
+	segmenter := &audioProcessorTestSegmenter{
+		segments: []neurocall.AudioSegment{
+			segment,
+		},
+	}
+
+	bus := NewEventBus()
+
+	received := make(chan Event, 1)
+
+	bus.Subscribe(
+		EventAudioSegment,
+		func(event Event) {
+			received <- event
+		},
+	)
+
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		vad,
+		segmenter,
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if err := processor.ProcessFrame(validAudioFrame()); err != nil {
+		t.Fatalf(
+			"ProcessFrame() error = %v",
+			err,
+		)
+	}
+
+	if segmenter.processCalls != 1 {
+		t.Fatalf(
+			"expected Process() once, got %d",
+			segmenter.processCalls,
+		)
+	}
+
+	select {
+	case event := <-received:
+		if event.Name != EventAudioSegment {
+			t.Fatalf(
+				"expected event %q, got %q",
+				EventAudioSegment,
+				event.Name,
+			)
+		}
+
+		got, ok := event.Data.(neurocall.AudioSegment)
+		if !ok {
+			t.Fatalf(
+				"expected AudioSegment event data, got %T",
+				event.Data,
+			)
+		}
+
+		if len(got.Data) != len(segment.Data) {
+			t.Fatalf(
+				"expected %d samples, got %d",
+				len(segment.Data),
+				len(got.Data),
+			)
+		}
+
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for audio segment event")
+	}
+
+	processor.Stop()
+}
+func TestAudioProcessorVADError(t *testing.T) {
+	expectedErr := errors.New("VAD failure")
+
+	vad := &audioProcessorTestVAD{
+		err: expectedErr,
+	}
+
+	segmenter := &audioProcessorTestSegmenter{}
+
+	bus := NewEventBus()
+
+	received := make(chan Event, 1)
+
+	bus.Subscribe(
+		EventAudioProcessorError,
+		func(event Event) {
+			received <- event
+		},
+	)
+
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		vad,
+		segmenter,
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	err = processor.ProcessFrame(validAudioFrame())
+
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf(
+			"expected VAD error %v, got %v",
+			expectedErr,
+			err,
+		)
+	}
+
+	select {
+	case event := <-received:
+		if event.Name != EventAudioProcessorError {
+			t.Fatalf(
+				"unexpected event name: %q",
+				event.Name,
+			)
+		}
+
+		gotErr, ok := event.Data.(error)
+		if !ok {
+			t.Fatalf(
+				"expected error event data, got %T",
+				event.Data,
+			)
+		}
+
+		if !errors.Is(gotErr, expectedErr) {
+			t.Fatalf(
+				"expected error %v, got %v",
+				expectedErr,
+				gotErr,
+			)
+		}
+
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for VAD error event")
+	}
+
+	processor.Stop()
+}
+func TestAudioProcessorSegmenterError(t *testing.T) {
+	expectedErr := errors.New("segmenter failure")
+
+	vad := &audioProcessorTestVAD{
+		speech: true,
+	}
+
+	segmenter := &audioProcessorTestSegmenter{
+		processErr: expectedErr,
+	}
+
+	bus := NewEventBus()
+
+	received := make(chan Event, 1)
+
+	bus.Subscribe(
+		EventAudioProcessorError,
+		func(event Event) {
+			received <- event
+		},
+	)
+
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		vad,
+		segmenter,
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	err = processor.ProcessFrame(validAudioFrame())
+
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf(
+			"expected segmenter error %v, got %v",
+			expectedErr,
+			err,
+		)
+	}
+
+	select {
+	case event := <-received:
+		if event.Name != EventAudioProcessorError {
+			t.Fatalf(
+				"unexpected event name: %q",
+				event.Name,
+			)
+		}
+
+		gotErr, ok := event.Data.(error)
+		if !ok {
+			t.Fatalf(
+				"expected error event data, got %T",
+				event.Data,
+			)
+		}
+
+		if !errors.Is(gotErr, expectedErr) {
+			t.Fatalf(
+				"expected error %v, got %v",
+				expectedErr,
+				gotErr,
+			)
+		}
+
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for segmenter error event")
+	}
+
+	processor.Stop()
+}
+func TestAudioProcessorFlush(t *testing.T) {
+	segment := neurocall.AudioSegment{
+		Data:       []int16{10, 20, 30},
+		SampleRate: 8000,
+		Channels:   1,
+	}
+
+	segmenter := &audioProcessorTestSegmenter{
+		segments: []neurocall.AudioSegment{
+			segment,
+		},
+	}
+
+	vad := &audioProcessorTestVAD{}
+
+	bus := NewEventBus()
+
+	received := make(chan Event, 1)
+
+	bus.Subscribe(
+		EventAudioSegment,
+		func(event Event) {
+			received <- event
+		},
+	)
+
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		vad,
+		segmenter,
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	if err := processor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if err := processor.Flush(); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
+
+	if segmenter.flushCalls != 1 {
+		t.Fatalf(
+			"expected Flush() once, got %d",
+			segmenter.flushCalls,
+		)
+	}
+
+	select {
+	case event := <-received:
+		if event.Name != EventAudioSegment {
+			t.Fatalf(
+				"expected %q, got %q",
+				EventAudioSegment,
+				event.Name,
+			)
+		}
+
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for flushed segment event")
+	}
+
+	processor.Stop()
+}
+func TestAudioProcessorFlushNilReceiver(t *testing.T) {
+	var processor *AudioProcessor
+
+	err := processor.Flush()
+
+	if !errors.Is(err, neurocall.ErrCallClosed) {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestAudioProcessorFlushAfterStop(t *testing.T) {
+	vad := &audioProcessorTestVAD{}
+	segmenter := &audioProcessorTestSegmenter{}
+
+	processor, _, worker := newAudioProcessorTestProcessor(
+		t,
+		vad,
+		segmenter,
+	)
+
+	if err := processor.Stop(); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	err := processor.Flush()
+
+	if !errors.Is(err, neurocall.ErrCallClosed) {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+
+	_ = worker
+}
+func TestAudioProcessorFlushSegmenterError(t *testing.T) {
+	expectedErr := errors.New("flush failure")
+
+	vad := &audioProcessorTestVAD{}
+
+	segmenter := &audioProcessorTestSegmenter{
+		flushErr: expectedErr,
+	}
+
+	bus := NewEventBus()
+
+	received := make(chan Event, 1)
+
+	bus.Subscribe(
+		EventAudioProcessorError,
+		func(event Event) {
+			received <- event
+		},
+	)
+
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		vad,
+		segmenter,
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	err = processor.Flush()
+
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf(
+			"expected %v, got %v",
+			expectedErr,
+			err,
+		)
+	}
+
+	select {
+	case event := <-received:
+		gotErr, ok := event.Data.(error)
+		if !ok {
+			t.Fatalf(
+				"expected error data, got %T",
+				event.Data,
+			)
+		}
+
+		if !errors.Is(gotErr, expectedErr) {
+			t.Fatalf(
+				"expected %v, got %v",
+				expectedErr,
+				gotErr,
+			)
+		}
+
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for flush error event")
+	}
+
+	worker.Stop()
+}
+func TestAudioProcessorFlushWithoutSegmenter(t *testing.T) {
+	bus := NewEventBus()
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		&audioProcessorTestVAD{},
+		&audioProcessorTestSegmenter{},
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	processor.segmenter = nil
+
+	err = processor.Flush()
+
+	if err == nil {
+		t.Fatal("expected segmenter configuration error")
+	}
+
+	worker.Stop()
+}
+func TestAudioProcessorFlushWithoutWorker(t *testing.T) {
+	bus := NewEventBus()
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		&audioProcessorTestVAD{},
+		&audioProcessorTestSegmenter{},
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	processor.worker = nil
+
+	err = processor.Flush()
+
+	if err == nil {
+		t.Fatal("expected worker configuration error")
+	}
+
+	worker.Stop()
+}
+func TestAudioProcessorResetSegmenter(t *testing.T) {
+	segmenter := &audioProcessorTestSegmenter{}
+
+	vad := &audioProcessorTestVAD{}
+
+	bus := NewEventBus()
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		vad,
+		segmenter,
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	if err := processor.ResetSegmenter(); err != nil {
+		t.Fatalf(
+			"ResetSegmenter() error = %v",
+			err,
+		)
+	}
+
+	if segmenter.resetCalls != 1 {
+		t.Fatalf(
+			"expected Reset() once, got %d",
+			segmenter.resetCalls,
+		)
+	}
+
+	worker.Stop()
+}
+func TestAudioProcessorResetSegmenterNilReceiver(t *testing.T) {
+	var processor *AudioProcessor
+
+	err := processor.ResetSegmenter()
+
+	if !errors.Is(err, neurocall.ErrCallClosed) {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestAudioProcessorResetSegmenterAfterStop(t *testing.T) {
+	segmenter := &audioProcessorTestSegmenter{}
+
+	bus := NewEventBus()
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		&audioProcessorTestVAD{},
+		segmenter,
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	if err := processor.Stop(); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	err = processor.ResetSegmenter()
+
+	if !errors.Is(err, neurocall.ErrCallClosed) {
+		t.Fatalf(
+			"expected ErrCallClosed, got %v",
+			err,
+		)
+	}
+}
+func TestAudioProcessorResetSegmenterWithoutSegmenter(t *testing.T) {
+	bus := NewEventBus()
+	worker := newAudioProcessorTestWorker(t, bus)
+
+	processor, err := NewAudioProcessor(
+		&audioProcessorTestVAD{},
+		&audioProcessorTestSegmenter{},
+		worker,
+		bus,
+	)
+	if err != nil {
+		t.Fatalf("NewAudioProcessor() error = %v", err)
+	}
+
+	processor.segmenter = nil
+
+	err = processor.ResetSegmenter()
+
+	if err == nil {
+		t.Fatal("expected segmenter configuration error")
+	}
+
+	worker.Stop()
+}
+func TestAudioProcessorPublishSegmentNilReceiver(t *testing.T) {
+	var processor *AudioProcessor
+
+	processor.publishSegment(
+		neurocall.AudioSegment{
+			Data: []int16{1},
+		},
+	)
+}
+func TestAudioProcessorPublishVADErrorNilReceiver(t *testing.T) {
+	var processor *AudioProcessor
+
+	processor.publishVADError(
+		errors.New("test error"),
+	)
+}
+func TestAudioProcessorPublishSegmenterErrorNilReceiver(t *testing.T) {
+	var processor *AudioProcessor
+
+	processor.publishSegmenterError(
+		errors.New("test error"),
+	)
+}
+func TestAudioProcessorPublishHelpersNilBus(t *testing.T) {
+	processor := &AudioProcessor{
+		bus: nil,
+	}
+
+	processor.publishSegment(
+		neurocall.AudioSegment{
+			Data: []int16{1},
+		},
+	)
+
+	processor.publishVADError(
+		errors.New("VAD error"),
+	)
+
+	processor.publishSegmenterError(
+		errors.New("segmenter error"),
+	)
+}
+func TestAudioProcessorPublishHelpers(t *testing.T) {
+	bus := NewEventBus()
+
+	segmentReceived := make(chan Event, 1)
+	errorReceived := make(chan Event, 2)
+
+	bus.Subscribe(
+		EventAudioSegment,
+		func(event Event) {
+			segmentReceived <- event
+		},
+	)
+
+	bus.Subscribe(
+		EventAudioProcessorError,
+		func(event Event) {
+			errorReceived <- event
+		},
+	)
+
+	processor := &AudioProcessor{
+		bus: bus,
+	}
+
+	segment := neurocall.AudioSegment{
+		Data: []int16{1, 2, 3},
+	}
+
+	vadErr := errors.New("VAD error")
+	segmenterErr := errors.New("segmenter error")
+
+	processor.publishSegment(segment)
+	processor.publishVADError(vadErr)
+	processor.publishSegmenterError(segmenterErr)
+
+	select {
+	case event := <-segmentReceived:
+		if event.Name != EventAudioSegment {
+			t.Fatalf(
+				"expected %q, got %q",
+				EventAudioSegment,
+				event.Name,
+			)
+		}
+
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for segment event")
+	}
+
+	for i := 0; i < 2; i++ {
+		select {
+		case event := <-errorReceived:
+			if event.Name != EventAudioProcessorError {
+				t.Fatalf(
+					"expected %q, got %q",
+					EventAudioProcessorError,
+					event.Name,
+				)
+			}
+
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("timeout waiting for processor error event")
+		}
+	}
+}
+func TestNewAudioEngine(t *testing.T) {
+	pipeline := &AudioPipeline{}
+
+	engine := NewAudioEngine(pipeline)
+
+	if engine == nil {
+		t.Fatal("expected engine, got nil")
+	}
+
+	if engine.pipeline != pipeline {
+		t.Fatal("expected pipeline to be stored in engine")
+	}
+}
+func TestAudioEngineStartAlreadyRunning(t *testing.T) {
+	pipeline := &AudioPipeline{}
+
+	engine := NewAudioEngine(pipeline)
+
+	engine.running = true
+
+	if err := engine.Start(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !engine.running {
+		t.Fatal("expected engine to remain running")
+	}
+}
+func TestDefaultAudioReceiveConfig(t *testing.T) {
+	cfg := DefaultAudioReceiveConfig()
+
+	if cfg.SampleRate != 8000 {
+		t.Fatalf(
+			"expected SampleRate=8000, got %d",
+			cfg.SampleRate,
+		)
+	}
+
+	if cfg.Channels != 1 {
+		t.Fatalf(
+			"expected Channels=1, got %d",
+			cfg.Channels,
+		)
+	}
+
+	if cfg.FrameSize != 160 {
+		t.Fatalf(
+			"expected FrameSize=160, got %d",
+			cfg.FrameSize,
+		)
+	}
+}
+func TestPassthroughAudioEncode(t *testing.T) {
+	p := PassthroughAudio{}
+
+	pcm := []int16{
+		0,
+		1,
+		-1,
+		32767,
+		-32768,
+		1234,
+		-5678,
+	}
+
+	got := p.Encode(pcm)
+
+	want := PCM16ToBytes(pcm)
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(
+			"Encode() mismatch\nwant: %v\ngot:  %v",
+			want,
+			got,
+		)
+	}
+}
+func TestPassthroughAudioDecode(t *testing.T) {
+	p := PassthroughAudio{}
+
+	pcm := []int16{
+		0,
+		1,
+		-1,
+		32767,
+		-32768,
+		1234,
+		-5678,
+	}
+
+	data := PCM16ToBytes(pcm)
+
+	got := p.Decode(data)
+
+	if !reflect.DeepEqual(got, pcm) {
+		t.Fatalf(
+			"Decode() mismatch\nwant: %v\ngot:  %v",
+			pcm,
+			got,
+		)
+	}
+}
+func TestPassthroughAudioRoundTrip(t *testing.T) {
+	p := PassthroughAudio{}
+
+	tests := []struct {
+		name string
+		pcm  []int16
+	}{
+		{
+			name: "empty",
+			pcm:  []int16{},
+		},
+		{
+			name: "single sample",
+			pcm:  []int16{123},
+		},
+		{
+			name: "positive and negative",
+			pcm:  []int16{0, 1, -1, 1000, -1000},
+		},
+		{
+			name: "extreme values",
+			pcm:  []int16{32767, -32768},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := p.Encode(tt.pcm)
+			got := p.Decode(data)
+
+			if !reflect.DeepEqual(got, tt.pcm) {
+				t.Fatalf(
+					"round trip mismatch\nwant: %v\ngot:  %v",
+					tt.pcm,
+					got,
+				)
+			}
+		})
+	}
+}
+func TestRTPSequenceTrackerReset(t *testing.T) {
+	tracker := NewRTPSequenceTracker()
+
+	// Build some state first.
+	tracker.Update(100)
+	tracker.Update(102) // 101 is considered lost.
+	tracker.Update(102) // duplicate.
+	tracker.Update(101) // out of order.
+
+	before := tracker.Stats()
+
+	if !before.HasSequence {
+		t.Fatal("expected tracker to have a sequence before Reset")
+	}
+
+	if before.ReceivedPackets == 0 {
+		t.Fatal("expected received packets before Reset")
+	}
+
+	tracker.Reset()
+
+	after := tracker.Stats()
+
+	if after.ReceivedPackets != 0 {
+		t.Fatalf(
+			"expected ReceivedPackets=0 after Reset, got %d",
+			after.ReceivedPackets,
+		)
+	}
+
+	if after.LostPackets != 0 {
+		t.Fatalf(
+			"expected LostPackets=0 after Reset, got %d",
+			after.LostPackets,
+		)
+	}
+
+	if after.Duplicates != 0 {
+		t.Fatalf(
+			"expected Duplicates=0 after Reset, got %d",
+			after.Duplicates,
+		)
+	}
+
+	if after.OutOfOrder != 0 {
+		t.Fatalf(
+			"expected OutOfOrder=0 after Reset, got %d",
+			after.OutOfOrder,
+		)
+	}
+
+	if after.HasSequence {
+		t.Fatal("expected HasSequence=false after Reset")
+	}
+
+	if after.LastSequence != 0 {
+		t.Fatalf(
+			"expected LastSequence=0 after Reset, got %d",
+			after.LastSequence,
+		)
+	}
+}
+func TestRTPSequenceTrackerResetAllowsFreshSequence(t *testing.T) {
+	tracker := NewRTPSequenceTracker()
+
+	tracker.Update(500)
+	tracker.Update(502)
+
+	tracker.Reset()
+
+	// After reset, this must be treated as the first packet,
+	// not as a packet arriving after sequence 502.
+	tracker.Update(1000)
+
+	stats := tracker.Stats()
+
+	if !stats.HasSequence {
+		t.Fatal("expected sequence to be initialized")
+	}
+
+	if stats.LastSequence != 1000 {
+		t.Fatalf(
+			"expected LastSequence=1000, got %d",
+			stats.LastSequence,
+		)
+	}
+
+	if stats.ReceivedPackets != 1 {
+		t.Fatalf(
+			"expected ReceivedPackets=1, got %d",
+			stats.ReceivedPackets,
+		)
+	}
+
+	if stats.LostPackets != 0 {
+		t.Fatalf(
+			"expected LostPackets=0, got %d",
+			stats.LostPackets,
+		)
+	}
+
+	if stats.Duplicates != 0 {
+		t.Fatalf(
+			"expected Duplicates=0, got %d",
+			stats.Duplicates,
+		)
+	}
+
+	if stats.OutOfOrder != 0 {
+		t.Fatalf(
+			"expected OutOfOrder=0, got %d",
+			stats.OutOfOrder,
 		)
 	}
 }

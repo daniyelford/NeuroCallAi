@@ -1,0 +1,4949 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>core: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/daniyelford/NeuroCallAi/core/methods.go (68.7%)</option>
+				
+				<option value="file1">github.com/daniyelford/NeuroCallAi/core/other.go (80.2%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package core
+
+import (
+        "context"
+        "encoding/binary"
+        "fmt"
+        "net"
+        "strings"
+        "time"
+
+        "github.com/daniyelford/NeuroCallAi/pkg/neurocall"
+)
+
+// CodecRegistry
+func NewCodecRegistry() *CodecRegistry <span class="cov8" title="1">{
+        return &amp;CodecRegistry{preferred: defaultCodecRegistry}
+}</span>
+func (r *CodecRegistry) Negotiate(remote []neurocall.Codec) (neurocall.Codec, error) <span class="cov8" title="1">{
+        for _, local := range r.preferred </span><span class="cov8" title="1">{
+                for _, remoteCodec := range remote </span><span class="cov8" title="1">{
+                        if local.Name == remoteCodec.Name </span><span class="cov8" title="1">{
+                                return local, nil
+                        }</span>
+                }
+        }
+        <span class="cov8" title="1">return neurocall.Codec{}, neurocall.ErrNoCommonCodec</span>
+}
+
+// CodecRegistry
+// PortAllocator
+func NewPortAllocator(min, max int) *PortAllocator <span class="cov8" title="1">{
+        if min%2 != 0 </span><span class="cov0" title="0">{
+                min++
+        }</span>
+        <span class="cov8" title="1">available := make(map[int]struct{})
+        for port := min; port &lt;= max; port += 2 </span><span class="cov8" title="1">{
+                available[port] = struct{}{}
+        }</span>
+        <span class="cov8" title="1">return &amp;PortAllocator{
+                min:       min,
+                max:       max,
+                available: available,
+        }</span>
+}
+func (a *PortAllocator) Allocate() (int, error) <span class="cov8" title="1">{
+        a.mu.Lock()
+        defer a.mu.Unlock()
+        for port := a.min; port &lt;= a.max; port += 2 </span><span class="cov8" title="1">{
+                if _, ok := a.available[port]; ok </span><span class="cov8" title="1">{
+                        delete(a.available, port)
+                        return port, nil
+                }</span>
+        }
+        <span class="cov0" title="0">return 0, errRTPPortExhausted</span>
+}
+func (a *PortAllocator) Release(port int) <span class="cov8" title="1">{
+        a.mu.Lock()
+        defer a.mu.Unlock()
+        if port &lt; a.min || port &gt; a.max || port%2 != 0 </span><span class="cov0" title="0">{
+                return
+        }</span>
+        <span class="cov8" title="1">a.available[port] = struct{}{}</span>
+}
+
+// PortAllocator
+// AudioBuffer
+func NewAudioBuffer(capacity int) *AudioBuffer <span class="cov0" title="0">{
+        if capacity &lt; 0 </span><span class="cov0" title="0">{
+                capacity = 0
+        }</span>
+        <span class="cov0" title="0">return &amp;AudioBuffer{
+                data:     make([]int16, 0, capacity),
+                capacity: capacity,
+        }</span>
+}
+func (b *AudioBuffer) Write(data []int16) <span class="cov0" title="0">{
+        if len(data) == 0 </span><span class="cov0" title="0">{
+                return
+        }</span>
+        <span class="cov0" title="0">b.mu.Lock()
+        defer b.mu.Unlock()
+        b.data = append(b.data, data...)
+        if b.capacity &gt; 0 &amp;&amp;
+                len(b.data) &gt; b.capacity </span><span class="cov0" title="0">{
+                excess := len(b.data) - b.capacity
+                b.data = b.data[excess:]
+        }</span>
+}
+func (b *AudioBuffer) Read(n int) []int16 <span class="cov0" title="0">{
+        b.mu.Lock()
+        defer b.mu.Unlock()
+        if n &lt;= 0 || len(b.data) == 0 </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        <span class="cov0" title="0">if n &gt; len(b.data) </span><span class="cov0" title="0">{
+                n = len(b.data)
+        }</span>
+        <span class="cov0" title="0">out := make([]int16, n)
+        copy(out, b.data[:n])
+        b.data = b.data[n:]
+        return out</span>
+}
+func (b *AudioBuffer) Len() int <span class="cov0" title="0">{
+        b.mu.Lock()
+        defer b.mu.Unlock()
+        return len(b.data)
+}</span>
+func (b *AudioBuffer) Clear() <span class="cov0" title="0">{
+        b.mu.Lock()
+        defer b.mu.Unlock()
+        b.data = b.data[:0]
+}</span>
+
+// AudioBuffer
+// AudioPipeline
+func NewAudioPipeline(cfg AudioConfig) *AudioPipeline <span class="cov8" title="1">{
+        ctx, cancel := context.WithCancel(context.Background())
+        return &amp;AudioPipeline{
+                input:  make(chan []int16, cfg.BufferSize),
+                output: make(chan []int16, cfg.BufferSize),
+                ctx:    ctx,
+                cancel: cancel,
+        }
+}</span>
+func (p *AudioPipeline) Start() <span class="cov8" title="1">{
+        if p == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+        <span class="cov8" title="1">p.mu.Lock()
+        if p.closed || p.running </span><span class="cov0" title="0">{
+                p.mu.Unlock()
+                return
+        }</span>
+        <span class="cov8" title="1">p.running = true
+        p.mu.Unlock()
+        go p.run()</span>
+}
+func (p *AudioPipeline) Decode(data []byte) ([]int16, error) <span class="cov0" title="0">{
+        p.mu.RLock()
+        decoder := p.decoder
+        p.mu.RUnlock()
+        if decoder == nil </span><span class="cov0" title="0">{
+                return nil, neurocall.ErrInvalidAudio
+        }</span>
+        <span class="cov0" title="0">if len(data) == 0 </span><span class="cov0" title="0">{
+                return nil,
+                        neurocall.ErrInvalidAudio
+        }</span>
+        <span class="cov0" title="0">pcm := decoder.Decode(data)
+        if len(pcm) == 0 </span><span class="cov0" title="0">{
+                return nil, neurocall.ErrInvalidAudio
+        }</span>
+        <span class="cov0" title="0">return pcm, nil</span>
+}
+func (p *AudioPipeline) Encode(pcm []int16) ([]byte, error) <span class="cov0" title="0">{
+        p.mu.RLock()
+        encoder := p.encoder
+        p.mu.RUnlock()
+        if encoder == nil </span><span class="cov0" title="0">{
+                return nil, neurocall.ErrInvalidAudio
+        }</span>
+        <span class="cov0" title="0">if len(pcm) == 0 </span><span class="cov0" title="0">{
+                return nil, neurocall.ErrInvalidAudio
+        }</span>
+        <span class="cov0" title="0">payload := encoder.Encode(pcm)
+        if len(payload) == 0 </span><span class="cov0" title="0">{
+                return nil, neurocall.ErrInvalidAudio
+        }</span>
+        <span class="cov0" title="0">return payload, nil</span>
+        // return encoder.Encode(pcm), nil
+}
+func (p *AudioPipeline) Close() error <span class="cov8" title="1">{
+        if p == nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">p.mu.Lock()
+        if p.closed </span><span class="cov0" title="0">{
+                p.mu.Unlock()
+                return nil
+        }</span>
+        <span class="cov8" title="1">p.closed = true
+        p.running = false
+        cancel := p.cancel
+        p.mu.Unlock()
+        if cancel != nil </span><span class="cov8" title="1">{
+                cancel()
+        }</span>
+        <span class="cov8" title="1">return nil</span>
+}
+func (p *AudioPipeline) SetEncoder(encoder neurocall.Encoder) <span class="cov8" title="1">{
+        p.mu.Lock()
+        defer p.mu.Unlock()
+        p.encoder = encoder
+}</span>
+func (p *AudioPipeline) SetDecoder(decoder neurocall.Decoder) <span class="cov8" title="1">{
+        p.mu.Lock()
+        defer p.mu.Unlock()
+        p.decoder = decoder
+}</span>
+func (p *AudioPipeline) SetResampler(resampler neurocall.Resampler) <span class="cov0" title="0">{
+        p.mu.Lock()
+        defer p.mu.Unlock()
+        p.resampler = resampler
+}</span>
+func (p *AudioPipeline) Resample(input []int16, fromRate int, toRate int) []int16 <span class="cov8" title="1">{
+        p.mu.RLock()
+        resampler := p.resampler
+        p.mu.RUnlock()
+        if resampler == nil </span><span class="cov8" title="1">{
+                return input
+        }</span>
+        <span class="cov0" title="0">if fromRate == toRate </span><span class="cov0" title="0">{
+                return input
+        }</span>
+        <span class="cov0" title="0">return resampler.Resample(input, fromRate, toRate)</span>
+}
+func (p *AudioPipeline) Encoder() neurocall.Encoder <span class="cov8" title="1">{
+        p.mu.RLock()
+        defer p.mu.RUnlock()
+        return p.encoder
+}</span>
+func (p *AudioPipeline) Decoder() neurocall.Decoder <span class="cov8" title="1">{
+        p.mu.RLock()
+        defer p.mu.RUnlock()
+        return p.decoder
+}</span>
+func (p *AudioPipeline) Resampler() neurocall.Resampler <span class="cov0" title="0">{
+        p.mu.RLock()
+        defer p.mu.RUnlock()
+        return p.resampler
+}</span>
+func (p *AudioPipeline) Push(audio []int16) error <span class="cov8" title="1">{
+        if p == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+        <span class="cov8" title="1">if len(audio) == 0 </span><span class="cov0" title="0">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+        <span class="cov8" title="1">p.mu.RLock()
+        if p.closed || !p.running </span><span class="cov0" title="0">{
+                p.mu.RUnlock()
+                return neurocall.ErrCallClosed
+        }</span>
+        <span class="cov8" title="1">input := p.input
+        ctx := p.ctx
+        p.mu.RUnlock()
+        select </span>{
+        case &lt;-ctx.Done():<span class="cov0" title="0">
+                return neurocall.ErrCallClosed</span>
+        case input &lt;- audio:<span class="cov8" title="1">
+                return nil</span>
+        }
+}
+func (p *AudioPipeline) Pull() ([]int16, error) <span class="cov8" title="1">{
+        select </span>{
+        case audio := &lt;-p.output:<span class="cov8" title="1">
+                return audio, nil</span>
+        case &lt;-p.ctx.Done():<span class="cov0" title="0">
+                return nil, neurocall.ErrCallClosed</span>
+        }
+}
+func (p *AudioPipeline) run() <span class="cov8" title="1">{
+        defer func() </span><span class="cov8" title="1">{
+                p.mu.Lock()
+                p.running = false
+                p.mu.Unlock()
+        }</span>()
+        <span class="cov8" title="1">for </span><span class="cov8" title="1">{
+                select </span>{
+                case &lt;-p.ctx.Done():<span class="cov8" title="1">
+                        return</span>
+                case pcm, ok := &lt;-p.input:<span class="cov8" title="1">
+                        if !ok </span><span class="cov0" title="0">{
+                                return
+                        }</span>
+                        <span class="cov8" title="1">if len(pcm) == 0 </span><span class="cov0" title="0">{
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">p.mu.RLock()
+                        encoder := p.encoder
+                        decoder := p.decoder
+                        p.mu.RUnlock()
+                        if encoder == nil || decoder == nil </span><span class="cov8" title="1">{
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">payload := encoder.Encode(pcm)
+                        if len(payload) == 0 </span><span class="cov0" title="0">{
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">decoded := decoder.Decode(payload)
+                        if len(decoded) == 0 </span><span class="cov0" title="0">{
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">select </span>{
+                        case p.output &lt;- decoded:<span class="cov8" title="1"></span>
+                        case &lt;-p.ctx.Done():<span class="cov0" title="0">
+                                return</span>
+                        }
+                }
+        }
+}
+
+// AudioPipeline
+// EventBus
+func NewEventBus() *EventBus <span class="cov8" title="1">{
+        return &amp;EventBus{handlers: make(map[string][]EventHandler)}
+}</span>
+func (b *EventBus) Subscribe(name string, handler EventHandler) <span class="cov8" title="1">{
+        if handler == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+        <span class="cov8" title="1">b.mu.Lock()
+        defer b.mu.Unlock()
+        b.handlers[name] = append(b.handlers[name], handler)</span>
+}
+func (b *EventBus) Publish(event Event) <span class="cov8" title="1">{
+        b.mu.RLock()
+        handlers := append([]EventHandler(nil), b.handlers[event.Name]...)
+        b.mu.RUnlock()
+        for _, handler := range handlers </span><span class="cov8" title="1">{
+                handler(event)
+        }</span>
+}
+
+// EventBus
+// ShutdownManager
+func NewShutdownManager() *ShutdownManager <span class="cov0" title="0">{
+        return &amp;ShutdownManager{}
+}</span>
+func (s *ShutdownManager) Register(
+        handler func() error,
+) <span class="cov0" title="0">{
+        if handler == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+
+        <span class="cov0" title="0">s.mu.Lock()
+        defer s.mu.Unlock()
+
+        s.handlers =
+                append(s.handlers, handler)</span>
+}
+func (s *ShutdownManager) Shutdown() error <span class="cov0" title="0">{
+        s.mu.Lock()
+
+        if s.shuttingDown </span><span class="cov0" title="0">{
+                s.mu.Unlock()
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">s.shuttingDown = true
+
+        handlers := append(
+                []func() error(nil),
+                s.handlers...,
+        )
+
+        s.mu.Unlock()
+
+        var firstErr error
+
+        for _, handler := range handlers </span><span class="cov0" title="0">{
+                if err := handler(); err != nil &amp;&amp;
+                        firstErr == nil </span><span class="cov0" title="0">{
+                        firstErr = err
+                }</span>
+        }
+
+        <span class="cov0" title="0">return firstErr</span>
+}
+
+// ShutdownManager
+// Container
+func NewContainer() *Container <span class="cov0" title="0">{
+        return &amp;Container{
+                services: make(map[string]any),
+        }
+}</span>
+func (c *Container) Set(
+        name string,
+        service any,
+) <span class="cov0" title="0">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        c.services[name] = service
+}</span>
+func (c *Container) Get(
+        name string,
+) (any, bool) <span class="cov0" title="0">{
+        c.mu.RLock()
+        defer c.mu.RUnlock()
+
+        value, ok := c.services[name]
+
+        return value, ok
+}</span>
+
+// Container
+// PluginRegistry
+func NewPluginRegistry() *PluginRegistry <span class="cov0" title="0">{
+        return &amp;PluginRegistry{
+                plugins: make(map[string]Plugin),
+        }
+}</span>
+func (r *PluginRegistry) Register(
+        plugin Plugin,
+) error <span class="cov0" title="0">{
+        if plugin == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf(
+                        "cannot register nil plugin",
+                )
+        }</span>
+
+        <span class="cov0" title="0">name := plugin.Name()
+
+        if name == "" </span><span class="cov0" title="0">{
+                return fmt.Errorf(
+                        "plugin name is empty",
+                )
+        }</span>
+
+        <span class="cov0" title="0">r.mu.Lock()
+        defer r.mu.Unlock()
+
+        if _, exists := r.plugins[name]; exists </span><span class="cov0" title="0">{
+                return fmt.Errorf(
+                        "plugin already registered: %s",
+                        name,
+                )
+        }</span>
+
+        <span class="cov0" title="0">r.plugins[name] = plugin
+
+        return nil</span>
+}
+func (r *PluginRegistry) Get(
+        name string,
+) (Plugin, bool) <span class="cov0" title="0">{
+        r.mu.RLock()
+        defer r.mu.RUnlock()
+
+        plugin, ok := r.plugins[name]
+
+        return plugin, ok
+}</span>
+func (r *PluginRegistry) List() []Plugin <span class="cov0" title="0">{
+        r.mu.RLock()
+        defer r.mu.RUnlock()
+
+        result := make(
+                []Plugin,
+                0,
+                len(r.plugins),
+        )
+
+        for _, plugin := range r.plugins </span><span class="cov0" title="0">{
+                result = append(result, plugin)
+        }</span>
+
+        <span class="cov0" title="0">return result</span>
+}
+
+// PluginRegistry
+// PluginGraph
+func NewPluginGraph() *PluginGraph <span class="cov0" title="0">{
+        return &amp;PluginGraph{
+                dependencies: make(
+                        map[string][]string,
+                ),
+        }
+}</span>
+func (g *PluginGraph) AddDependency(
+        plugin string,
+        dependency string,
+) <span class="cov0" title="0">{
+        g.mu.Lock()
+        defer g.mu.Unlock()
+
+        g.dependencies[plugin] =
+                append(
+                        g.dependencies[plugin],
+                        dependency,
+                )
+}</span>
+func (g *PluginGraph) Dependencies(
+        plugin string,
+) []string <span class="cov0" title="0">{
+        g.mu.RLock()
+        defer g.mu.RUnlock()
+
+        return append(
+                []string(nil),
+                g.dependencies[plugin]...,
+        )
+}</span>
+
+// PluginGraph
+// CallManager
+func NewCallManager(
+        minRTPPort int,
+        maxRTPPort int,
+) *CallManager <span class="cov8" title="1">{
+
+        return &amp;CallManager{
+                calls: make(map[string]*SIPCall),
+
+                ports: NewPortAllocator(
+                        minRTPPort,
+                        maxRTPPort,
+                ),
+
+                sessions: make(
+                        map[string]*CallSession,
+                ),
+
+                bus: NewEventBus(),
+        }
+}</span>
+func (m *CallManager) SetEventBus(bus *EventBus) <span class="cov8" title="1">{
+        if m == nil || bus == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+        <span class="cov8" title="1">m.mu.Lock()
+        m.bus = bus
+        m.mu.Unlock()</span>
+}
+func (m *CallManager) StartSession(call *SIPCall) (*CallSession, error) <span class="cov8" title="1">{
+        session, err := m.CreateSession(call)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">if err := session.Start(); err != nil </span><span class="cov0" title="0">{
+                _ = m.RemoveSession(call.CallID)
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">return session, nil</span>
+}
+func (m *CallManager) Add(call *SIPCall) error <span class="cov8" title="1">{
+
+        if call == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallNotFound
+        }</span>
+
+        <span class="cov8" title="1">if call.CallID == "" </span><span class="cov0" title="0">{
+                return neurocall.ErrCallNotFound
+        }</span>
+
+        <span class="cov8" title="1">m.mu.Lock()
+        defer m.mu.Unlock()
+
+        if _, exists := m.calls[call.CallID]; exists </span><span class="cov0" title="0">{
+                return fmt.Errorf(
+                        "call already exists: %s",
+                        call.CallID,
+                )
+        }</span>
+
+        <span class="cov8" title="1">m.calls[call.CallID] = call
+
+        return nil</span>
+}
+func (m *CallManager) Get(id string) (*SIPCall, error) <span class="cov8" title="1">{
+        m.mu.RLock()
+        defer m.mu.RUnlock()
+        call, ok := m.calls[id]
+        if !ok </span><span class="cov8" title="1">{
+                return nil, neurocall.ErrCallNotFound
+        }</span>
+        <span class="cov8" title="1">return call, nil</span>
+}
+func (m *CallManager) Remove(id string) error <span class="cov8" title="1">{
+        if m == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallNotFound
+        }</span>
+
+        <span class="cov8" title="1">m.mu.Lock()
+
+        call, exists := m.calls[id]
+        if !exists </span><span class="cov8" title="1">{
+                m.mu.Unlock()
+                return neurocall.ErrCallNotFound
+        }</span>
+
+        <span class="cov8" title="1">session := m.sessions[id]
+
+        delete(m.calls, id)
+        delete(m.sessions, id)
+
+        m.mu.Unlock()
+
+        var localPort int
+        if call != nil </span><span class="cov8" title="1">{
+                call.mu.Lock()
+                localPort = call.LocalRTPPort
+                call.LocalRTPPort = 0
+                call.mu.Unlock()
+        }</span>
+        <span class="cov8" title="1">if session != nil </span><span class="cov8" title="1">{
+                _ = session.Close()
+        }</span>
+        <span class="cov8" title="1">if call != nil </span><span class="cov8" title="1">{
+                _ = call.CloseResources()
+        }</span>
+        <span class="cov8" title="1">if localPort &gt; 0 </span><span class="cov8" title="1">{
+                m.ports.Release(localPort)
+        }</span>
+        <span class="cov8" title="1">return nil</span>
+}
+func (m *CallManager) List() []*SIPCall <span class="cov8" title="1">{
+
+        m.mu.RLock()
+        defer m.mu.RUnlock()
+
+        result := make(
+                []*SIPCall,
+                0,
+                len(m.calls),
+        )
+
+        for _, call := range m.calls </span><span class="cov8" title="1">{
+                result = append(
+                        result,
+                        call,
+                )
+        }</span>
+
+        <span class="cov8" title="1">return result</span>
+}
+func (m *CallManager) CreateSession(call *SIPCall) (*CallSession, error) <span class="cov8" title="1">{
+        if call == nil || call.CallID == "" </span><span class="cov0" title="0">{
+                return nil, neurocall.ErrCallNotFound
+        }</span>
+        <span class="cov8" title="1">m.mu.Lock()
+        defer m.mu.Unlock()
+        if _, exists := m.calls[call.CallID]; !exists </span><span class="cov0" title="0">{
+                return nil, neurocall.ErrCallNotFound
+        }</span>
+        <span class="cov8" title="1">if _, exists := m.sessions[call.CallID]; exists </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("session already exists: %s", call.CallID)
+        }</span>
+        <span class="cov8" title="1">bus := m.bus
+        if bus == nil </span><span class="cov0" title="0">{
+                bus = NewEventBus()
+                m.bus = bus
+        }</span>
+        <span class="cov8" title="1">session, err := NewCallSession(
+                call,
+                bus,
+        )
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">m.sessions[call.CallID] = session
+        return session, nil</span>
+}
+func (m *CallManager) GetSession(id string) (*CallSession, error) <span class="cov8" title="1">{
+
+        m.mu.RLock()
+        defer m.mu.RUnlock()
+
+        session, ok := m.sessions[id]
+
+        if !ok </span><span class="cov8" title="1">{
+                return nil, neurocall.ErrCallNotFound
+        }</span>
+
+        <span class="cov8" title="1">return session, nil</span>
+}
+func (m *CallManager) RemoveSession(id string) error <span class="cov8" title="1">{
+        m.mu.Lock()
+        session, ok := m.sessions[id]
+        if !ok </span><span class="cov0" title="0">{
+                m.mu.Unlock()
+                return neurocall.ErrCallNotFound
+        }</span>
+        <span class="cov8" title="1">delete(m.sessions, id)
+        m.mu.Unlock()
+        return session.Close()</span>
+}
+
+// CallManager
+// CallSession
+func NewCallSession(call *SIPCall, bus *EventBus) (*CallSession, error) <span class="cov8" title="1">{
+        if call == nil </span><span class="cov8" title="1">{
+                return nil, neurocall.ErrCallNotFound
+        }</span>
+
+        <span class="cov8" title="1">if call.CallID == "" </span><span class="cov8" title="1">{
+                return nil, neurocall.ErrCallNotFound
+        }</span>
+        <span class="cov8" title="1">ctx, cancel := context.WithCancel(
+                context.Background(),
+        )
+        if bus == nil </span><span class="cov0" title="0">{
+                bus = NewEventBus()
+        }</span>
+        <span class="cov8" title="1">conversation := NewConversation()
+        session := &amp;CallSession{
+                ID:           call.CallID,
+                Call:         call,
+                Events:       bus,
+                Conversation: conversation,
+
+                Memory: NewMemory(),
+                Tools:  NewToolRegistry(),
+
+                ctx:    ctx,
+                cancel: cancel,
+        }
+
+        return session, nil</span>
+}
+func (s *CallSession) ConfigureConversation(llm *LLMEngine) error <span class="cov8" title="1">{
+        if s == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">if llm == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("LLM engine is nil")
+        }</span>
+
+        <span class="cov8" title="1">s.mu.Lock()
+
+        if s.closed </span><span class="cov0" title="0">{
+                s.mu.Unlock()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">conversation := s.Conversation
+        bus := s.Events
+        callID := s.ID
+
+        engine := NewConversationEngine(
+                llm,
+                bus,
+        )
+
+        s.LLM = llm
+        s.ConversationEngine = engine
+
+        s.mu.Unlock()
+
+        if conversation == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("conversation is not configured")
+        }</span>
+
+        <span class="cov8" title="1">if err := engine.SetConversation(
+                callID,
+                conversation,
+        ); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">return s.AttachSTTEvents()</span>
+}
+func (s *CallSession) ConfigureVoice(tts *TTSEngine) error <span class="cov8" title="1">{
+        if s == nil </span><span class="cov8" title="1">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">if tts == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("TTS engine is nil")
+        }</span>
+
+        <span class="cov8" title="1">s.mu.Lock()
+
+        if s.closed </span><span class="cov8" title="1">{
+                s.mu.Unlock()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">s.TTS = tts
+
+        voice := NewVoiceResponseEngine(
+                tts,
+                s.Events,
+        )
+
+        s.VoiceEngine = voice
+
+        call := s.Call
+
+        s.mu.Unlock()
+
+        if call != nil </span><span class="cov8" title="1">{
+                voice.RegisterCall(call)
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+func (s *CallSession) ConfigureSTT(worker *STTWorker) error <span class="cov8" title="1">{
+        if s == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">if worker == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("STT worker is nil")
+        }</span>
+
+        <span class="cov8" title="1">s.mu.Lock()
+        defer s.mu.Unlock()
+
+        if s.closed </span><span class="cov8" title="1">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">s.STTWorker = worker
+
+        return nil</span>
+}
+func (s *CallSession) AttachSTTEvents() error <span class="cov8" title="1">{
+        if s == nil </span><span class="cov8" title="1">{
+                return neurocall.ErrCallClosed
+        }</span>
+        <span class="cov8" title="1">s.mu.Lock()
+        if s.closed </span><span class="cov8" title="1">{
+                s.mu.Unlock()
+                return neurocall.ErrCallClosed
+        }</span>
+        <span class="cov8" title="1">if s.sttEventsAttached </span><span class="cov8" title="1">{
+                s.mu.Unlock()
+                return nil
+        }</span>
+        <span class="cov8" title="1">bus := s.Events
+        engine := s.ConversationEngine
+        if bus == nil </span><span class="cov8" title="1">{
+                s.mu.Unlock()
+                return fmt.Errorf("event bus is nil")
+        }</span>
+        <span class="cov8" title="1">if engine == nil </span><span class="cov8" title="1">{
+                s.mu.Unlock()
+                return fmt.Errorf(
+                        "conversation engine is not configured",
+                )
+        }</span>
+        <span class="cov8" title="1">callID := s.ID
+        s.sttEventsAttached = true
+        s.mu.Unlock()
+        bus.Subscribe(
+                EventTranscript,
+                func(event Event) </span><span class="cov8" title="1">{
+                        data, ok := event.Data.(TranscriptEvent)
+                        if !ok </span><span class="cov8" title="1">{
+                                return
+                        }</span>
+                        <span class="cov8" title="1">if data.CallID != callID </span><span class="cov8" title="1">{
+                                return
+                        }</span>
+                        <span class="cov8" title="1">if s.Closed() </span><span class="cov0" title="0">{
+                                return
+                        }</span>
+                        <span class="cov8" title="1">go func() </span><span class="cov8" title="1">{
+                                if s.Closed() </span><span class="cov0" title="0">{
+                                        return
+                                }</span>
+                                <span class="cov8" title="1">if err := engine.HandleTranscript(
+                                        data,
+                                ); err != nil </span><span class="cov8" title="1">{
+                                        if s.Closed() </span><span class="cov0" title="0">{
+                                                return
+                                        }</span>
+                                        <span class="cov8" title="1">bus.Publish(Event{
+                                                Name: EventLLMError,
+                                                Data: err,
+                                        })</span>
+                                }
+                        }()
+                },
+        )
+
+        <span class="cov8" title="1">return nil</span>
+}
+func (s *CallSession) ProcessAudioSegment(segment neurocall.AudioSegment) error <span class="cov8" title="1">{
+
+        if s == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">if len(segment.Data) == 0 </span><span class="cov8" title="1">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+
+        <span class="cov8" title="1">s.mu.RLock()
+
+        if s.closed || !s.running </span><span class="cov8" title="1">{
+                s.mu.RUnlock()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">worker := s.STTWorker
+
+        s.mu.RUnlock()
+
+        if worker == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf(
+                        "STT worker is not configured",
+                )
+        }</span>
+
+        <span class="cov8" title="1">return worker.Push(segment)</span>
+}
+func (s *CallSession) ProcessAudioFrame(ctx context.Context, frame neurocall.AudioFrame, pcm []int16) error <span class="cov8" title="1">{
+        if s == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+        <span class="cov8" title="1">if len(pcm) == 0 </span><span class="cov8" title="1">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+        <span class="cov8" title="1">if ctx == nil </span><span class="cov0" title="0">{
+                ctx = context.Background()
+        }</span>
+        <span class="cov8" title="1">select </span>{
+        case &lt;-ctx.Done():<span class="cov8" title="1">
+                return ctx.Err()</span>
+        default:<span class="cov8" title="1"></span>
+        }
+        <span class="cov8" title="1">s.mu.RLock()
+        if s.closed || !s.running </span><span class="cov0" title="0">{
+                s.mu.RUnlock()
+                return neurocall.ErrCallClosed
+        }</span>
+        <span class="cov8" title="1">call := s.Call
+        worker := s.STTWorker
+        s.mu.RUnlock()
+        if call == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallNotFound
+        }</span>
+        <span class="cov8" title="1">if worker == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("STT worker is not configured")
+        }</span>
+        <span class="cov8" title="1">call.mu.RLock()
+        segmenter := call.Segmenter
+        call.mu.RUnlock()
+        if segmenter == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("speech segmenter is not configured")
+        }</span>
+        <span class="cov8" title="1">segments, err := segmenter.Process(ctx, frame)
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">for _, segment := range segments </span><span class="cov8" title="1">{
+                if len(segment.Data) == 0 </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+                <span class="cov8" title="1">if err := worker.Push(segment); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+func (s *CallSession) SetSTT(stt neurocall.STT) <span class="cov8" title="1">{
+        s.mu.Lock()
+        defer s.mu.Unlock()
+
+        s.STT = stt
+}</span>
+func (s *CallSession) SetStreamingSTT(stt neurocall.StreamingSTT) <span class="cov0" title="0">{
+        s.mu.Lock()
+        defer s.mu.Unlock()
+
+        s.StreamingSTT = stt
+}</span>
+func (s *CallSession) SetTTS(tts neurocall.TTS) <span class="cov8" title="1">{
+        s.mu.Lock()
+        defer s.mu.Unlock()
+
+        s.TTS = tts
+}</span>
+func (s *CallSession) SetLLM(llm neurocall.LLM) <span class="cov0" title="0">{
+        s.mu.Lock()
+        defer s.mu.Unlock()
+
+        s.LLM = llm
+}</span>
+func (s *CallSession) SetMemory(memory neurocall.Memory) <span class="cov8" title="1">{
+        s.mu.Lock()
+        defer s.mu.Unlock()
+        s.Memory = memory
+}</span>
+func (s *CallSession) SetTools(tools neurocall.ToolRegistry) <span class="cov8" title="1">{
+        s.mu.Lock()
+        defer s.mu.Unlock()
+        s.Tools = tools
+}</span>
+func (s *CallSession) Context() context.Context <span class="cov8" title="1">{
+
+        s.mu.RLock()
+        defer s.mu.RUnlock()
+
+        return s.ctx
+}</span>
+func (s *CallSession) Start() error <span class="cov8" title="1">{
+        if s == nil </span><span class="cov8" title="1">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">s.mu.Lock()
+
+        if s.closed </span><span class="cov8" title="1">{
+                s.mu.Unlock()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">if s.running </span><span class="cov8" title="1">{
+                s.mu.Unlock()
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">s.running = true
+
+        audio := s.Audio
+        worker := s.STTWorker
+
+        s.mu.Unlock()
+
+        if audio != nil </span><span class="cov8" title="1">{
+                audio.Start()
+        }</span>
+
+        <span class="cov8" title="1">if worker != nil </span><span class="cov8" title="1">{
+                if err := worker.Start(); err != nil </span><span class="cov0" title="0">{
+                        if audio != nil </span><span class="cov0" title="0">{
+                                _ = audio.Close()
+                        }</span>
+
+                        <span class="cov0" title="0">s.mu.Lock()
+                        s.running = false
+                        s.mu.Unlock()
+
+                        return err</span>
+                }
+        }
+
+        <span class="cov8" title="1">if s.Events != nil </span><span class="cov8" title="1">{
+                s.Events.Publish(Event{
+                        Name: EventCallStarted,
+                        Data: s,
+                })
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+func (s *CallSession) State() CallSessionState <span class="cov8" title="1">{
+        if s == nil </span><span class="cov8" title="1">{
+                return CallSessionState{
+                        Closed: true,
+                }
+        }</span>
+
+        <span class="cov8" title="1">s.mu.RLock()
+        defer s.mu.RUnlock()
+
+        return CallSessionState{
+                ID: s.ID,
+
+                Running: s.running,
+                Closed:  s.closed,
+
+                HasAudio: s.Audio != nil,
+                HasSTT:   s.STTWorker != nil,
+                HasLLM:   s.ConversationEngine != nil,
+                HasTTS:   s.VoiceEngine != nil,
+        }</span>
+}
+func (s *CallSession) PushAudio(audio []int16) error <span class="cov8" title="1">{
+
+        if s == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">if len(audio) == 0 </span><span class="cov0" title="0">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+
+        <span class="cov8" title="1">s.mu.RLock()
+
+        if s.closed || !s.running </span><span class="cov8" title="1">{
+                s.mu.RUnlock()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">pipeline := s.Audio
+
+        s.mu.RUnlock()
+
+        if pipeline == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("audio pipeline is not configured")
+        }</span>
+
+        <span class="cov8" title="1">return pipeline.Push(audio)</span>
+}
+func (s *CallSession) PushSTTSegment(segment neurocall.AudioSegment) error <span class="cov8" title="1">{
+
+        if s == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">if len(segment.Data) == 0 </span><span class="cov0" title="0">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+
+        <span class="cov8" title="1">s.mu.RLock()
+
+        if s.closed || !s.running </span><span class="cov8" title="1">{
+                s.mu.RUnlock()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">worker := s.STTWorker
+
+        s.mu.RUnlock()
+
+        if worker == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("STT worker is not configured")
+        }</span>
+
+        <span class="cov8" title="1">return worker.Push(segment)</span>
+}
+func (s *CallSession) Running() bool <span class="cov8" title="1">{
+        if s == nil </span><span class="cov0" title="0">{
+                return false
+        }</span>
+        <span class="cov8" title="1">s.mu.RLock()
+        defer s.mu.RUnlock()
+        return s.running &amp;&amp; !s.closed</span>
+}
+func (s *CallSession) Closed() bool <span class="cov8" title="1">{
+        if s == nil </span><span class="cov0" title="0">{
+                return true
+        }</span>
+        <span class="cov8" title="1">s.mu.RLock()
+        defer s.mu.RUnlock()
+        return s.closed</span>
+}
+func (s *CallSession) SetSTTWorker(worker *STTWorker) error <span class="cov8" title="1">{
+        // if worker == nil {
+        //         return fmt.Errorf("STT worker is nil")
+        // }
+        s.mu.Lock()
+        defer s.mu.Unlock()
+        if s.closed </span><span class="cov8" title="1">{
+                return neurocall.ErrCallClosed
+        }</span>
+        <span class="cov8" title="1">s.STTWorker = worker
+        return nil</span>
+}
+func (s *CallSession) GetSTTWorker() *STTWorker <span class="cov8" title="1">{
+        s.mu.RLock()
+        defer s.mu.RUnlock()
+        return s.STTWorker
+}</span>
+func (s *CallSession) Close() error <span class="cov8" title="1">{
+        if s == nil </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">s.mu.Lock()
+
+        if s.closed </span><span class="cov8" title="1">{
+                s.mu.Unlock()
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">s.closed = true
+        s.running = false
+
+        cancel := s.cancel
+        worker := s.STTWorker
+        audio := s.Audio
+        events := s.Events
+        conversationEngine := s.ConversationEngine
+        callID := s.ID
+        s.mu.Unlock()
+
+        if conversationEngine != nil </span><span class="cov8" title="1">{
+                _ = conversationEngine.Remove(callID)
+        }</span>
+
+        <span class="cov8" title="1">if worker != nil </span><span class="cov8" title="1">{
+                worker.Stop()
+        }</span>
+
+        <span class="cov8" title="1">if audio != nil </span><span class="cov8" title="1">{
+                _ = audio.Close()
+        }</span>
+
+        <span class="cov8" title="1">if cancel != nil </span><span class="cov8" title="1">{
+                cancel()
+        }</span>
+
+        <span class="cov8" title="1">if events != nil </span><span class="cov8" title="1">{
+                events.Publish(Event{
+                        Name: EventCallEnded,
+                        Data: s,
+                })
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// CallSession
+// MapMemory
+func NewMemory() *MapMemory <span class="cov8" title="1">{
+        return &amp;MapMemory{
+                data: make(map[string]any),
+        }
+}</span>
+func (m *MapMemory) Get(
+        key string,
+) (any, bool) <span class="cov0" title="0">{
+
+        m.mu.RLock()
+        defer m.mu.RUnlock()
+
+        value, ok := m.data[key]
+
+        return value, ok
+}</span>
+
+func (m *MapMemory) Set(
+        key string,
+        value any,
+) <span class="cov0" title="0">{
+
+        if key == "" </span><span class="cov0" title="0">{
+                return
+        }</span>
+
+        <span class="cov0" title="0">m.mu.Lock()
+        defer m.mu.Unlock()
+
+        m.data[key] = value</span>
+}
+
+func (m *MapMemory) Delete(
+        key string,
+) <span class="cov0" title="0">{
+
+        m.mu.Lock()
+        defer m.mu.Unlock()
+
+        delete(m.data, key)
+}</span>
+func (m *MapMemory) Clear() <span class="cov0" title="0">{
+
+        m.mu.Lock()
+        defer m.mu.Unlock()
+
+        m.data = make(map[string]any)
+}</span>
+
+// MapMemory
+// ToolRegistry
+func NewToolRegistry() *ToolRegistry <span class="cov8" title="1">{
+        return &amp;ToolRegistry{
+                tools: make(map[string]neurocall.Tool),
+        }
+}</span>
+func (r *ToolRegistry) Register(
+        tool neurocall.Tool,
+) error <span class="cov0" title="0">{
+        if tool == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrToolNotFound
+        }</span>
+        <span class="cov0" title="0">name := tool.Name()
+        if name == "" </span><span class="cov0" title="0">{
+                return fmt.Errorf(
+                        "tool name is empty",
+                )
+        }</span>
+        <span class="cov0" title="0">r.mu.Lock()
+        defer r.mu.Unlock()
+        if _, exists := r.tools[name]; exists </span><span class="cov0" title="0">{
+                return fmt.Errorf(
+                        "tool already registered: %s",
+                        name,
+                )
+        }</span>
+        <span class="cov0" title="0">r.tools[name] = tool
+        return nil</span>
+}
+func (r *ToolRegistry) Get(
+        name string,
+) (neurocall.Tool, bool) <span class="cov0" title="0">{
+
+        r.mu.RLock()
+        defer r.mu.RUnlock()
+
+        tool, ok := r.tools[name]
+
+        return tool, ok
+}</span>
+func (r *ToolRegistry) List() []neurocall.Tool <span class="cov0" title="0">{
+
+        r.mu.RLock()
+        defer r.mu.RUnlock()
+
+        result := make(
+                []neurocall.Tool,
+                0,
+                len(r.tools),
+        )
+
+        for _, tool := range r.tools </span><span class="cov0" title="0">{
+                result = append(result, tool)
+        }</span>
+
+        <span class="cov0" title="0">return result</span>
+}
+func (r *ToolRegistry) Call(
+        name string,
+        args map[string]any,
+) (any, error) <span class="cov0" title="0">{
+
+        tool, ok := r.Get(name)
+
+        if !ok </span><span class="cov0" title="0">{
+                return nil, neurocall.ErrToolNotFound
+        }</span>
+
+        <span class="cov0" title="0">return tool.Call(args)</span>
+}
+
+// ToolRegistry
+// SIPCall
+
+func (c *SIPCall) ID() string <span class="cov0" title="0">{
+        return c.CallID
+}</span>
+func (c *SIPCall) Answer() error <span class="cov8" title="1">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+        if c.closed </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+        <span class="cov8" title="1">if c.answered </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">c.answered = true
+        return nil</span>
+}
+func (c *SIPCall) Hangup() error <span class="cov0" title="0">{
+        c.mu.Lock()
+        if c.closed </span><span class="cov0" title="0">{
+                c.mu.Unlock()
+                return nil
+        }</span>
+        <span class="cov0" title="0">c.closed = true
+        rtp := c.RTP
+        pipeline := c.Pipeline
+        stt := c.STT
+        c.mu.Unlock()
+        if stt != nil </span><span class="cov0" title="0">{
+                stt.Stop()
+        }</span>
+        <span class="cov0" title="0">if rtp != nil </span><span class="cov0" title="0">{
+                _ = rtp.Close()
+        }</span>
+        <span class="cov0" title="0">if pipeline != nil </span><span class="cov0" title="0">{
+                _ = pipeline.Close()
+        }</span>
+        <span class="cov0" title="0">return nil</span>
+}
+func (c *SIPCall) Answered() bool <span class="cov8" title="1">{
+        c.mu.RLock()
+        defer c.mu.RUnlock()
+
+        return c.answered &amp;&amp; !c.closed
+}</span>
+func (c *SIPCall) Closed() bool <span class="cov8" title="1">{
+        c.mu.RLock()
+        defer c.mu.RUnlock()
+
+        return c.closed
+}</span>
+func (c *SIPCall) SetSTTWorker(
+        worker *STTWorker,
+) error <span class="cov8" title="1">{
+
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        if c.closed </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">c.STT = worker
+
+        return nil</span>
+}
+func (c *SIPCall) STTWorker() *STTWorker <span class="cov0" title="0">{
+        c.mu.RLock()
+        defer c.mu.RUnlock()
+        return c.STT
+}</span>
+func (c *SIPCall) StartReceiveLoop() <span class="cov8" title="1">{
+        if c == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+        <span class="cov8" title="1">c.mu.Lock()
+        if c.closed || c.receiveRunning </span><span class="cov0" title="0">{
+                c.mu.Unlock()
+                return
+        }</span>
+        <span class="cov8" title="1">c.receiveRunning = true
+        c.mu.Unlock()
+        go func() </span><span class="cov8" title="1">{
+                defer func() </span><span class="cov8" title="1">{
+                        c.mu.Lock()
+                        c.receiveRunning = false
+                        c.mu.Unlock()
+                }</span>()
+                <span class="cov8" title="1">for </span><span class="cov8" title="1">{
+                        c.mu.RLock()
+                        if c.closed </span><span class="cov0" title="0">{
+                                c.mu.RUnlock()
+                                return
+                        }</span>
+                        <span class="cov8" title="1">rtp := c.RTP
+                        pipeline := c.Pipeline
+                        segmenter := c.Segmenter
+                        stt := c.STT
+                        codec := c.Codec
+                        c.mu.RUnlock()
+                        if rtp == nil ||
+                                pipeline == nil ||
+                                segmenter == nil </span><span class="cov0" title="0">{
+                                return
+                        }</span>
+                        <span class="cov8" title="1">decoder := pipeline.Decoder()
+                        if decoder == nil </span><span class="cov0" title="0">{
+                                return
+                        }</span>
+                        <span class="cov8" title="1">pcm, err := rtp.ReadPCM(decoder)
+                        if err != nil </span><span class="cov8" title="1">{
+                                if c.Closed() </span><span class="cov8" title="1">{
+                                        return
+                                }</span>
+                                <span class="cov0" title="0">continue</span>
+                        }
+                        <span class="cov8" title="1">if len(pcm) == 0 </span><span class="cov0" title="0">{
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">frame := neurocall.AudioFrame{
+                                Data:       pcm,
+                                SampleRate: codec.ClockRate,
+                                Channels:   codec.Channels,
+                        }
+                        ctx := context.Background()
+                        segments, err := segmenter.Process(ctx, frame)
+                        if err != nil </span><span class="cov0" title="0">{
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">if stt == nil </span><span class="cov0" title="0">{
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">for _, segment := range segments </span><span class="cov8" title="1">{
+                                if len(segment.Data) == 0 </span><span class="cov0" title="0">{
+                                        continue</span>
+                                }
+                                <span class="cov8" title="1">if err := stt.Push(segment); err != nil </span><span class="cov0" title="0">{
+                                        if c.Closed() </span><span class="cov0" title="0">{
+                                                return
+                                        }</span>
+
+                                        <span class="cov0" title="0">continue</span>
+                                }
+                        }
+                }
+        }()
+}
+func (c *SIPCall) StartRTP(
+        localIP string,
+) error <span class="cov8" title="1">{
+        c.mu.Lock()
+        if c.closed </span><span class="cov0" title="0">{
+                c.mu.Unlock()
+                return neurocall.ErrCallClosed
+        }</span>
+        <span class="cov8" title="1">if c.RTP != nil </span><span class="cov0" title="0">{
+                c.mu.Unlock()
+                return nil
+        }</span>
+        <span class="cov8" title="1">codec := c.Codec
+        remoteIP := c.RemoteIP
+        remotePort := c.RemotePort
+        localPort := c.LocalRTPPort
+        c.mu.Unlock()
+        rtp, err := NewRTPSession(
+                localIP,
+                localPort,
+                remoteIP,
+                remotePort,
+                codec,
+        )
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">c.mu.Lock()
+        if c.closed </span><span class="cov0" title="0">{
+                c.mu.Unlock()
+                _ = rtp.Close()
+                return neurocall.ErrCallClosed
+        }</span>
+        <span class="cov8" title="1">c.RTP = rtp
+        c.mu.Unlock()
+        return nil</span>
+}
+func (c *SIPCall) StartAudio(
+        cfg AudioConfig,
+) error <span class="cov8" title="1">{
+
+        c.mu.Lock()
+
+        if c.closed </span><span class="cov0" title="0">{
+                c.mu.Unlock()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">if c.Pipeline != nil </span><span class="cov0" title="0">{
+                c.mu.Unlock()
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">c.mu.Unlock()
+
+        pipeline := NewAudioPipeline(cfg)
+
+        encoder, err :=
+                EncoderFor(c.Codec)
+
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">decoder, err :=
+                DecoderFor(c.Codec)
+
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">pipeline.SetEncoder(encoder)
+        pipeline.SetDecoder(decoder)
+
+        pipeline.Start()
+
+        c.mu.Lock()
+
+        if c.closed </span><span class="cov0" title="0">{
+                c.mu.Unlock()
+                _ = pipeline.Close()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">c.Pipeline = pipeline
+
+        c.mu.Unlock()
+
+        return nil</span>
+}
+func (c *SIPCall) Speak(
+        ctx context.Context,
+        text string,
+) error <span class="cov8" title="1">{
+
+        c.mu.RLock()
+
+        tts := c.TTS
+        rtp := c.RTP
+        pipeline := c.Pipeline
+        codec := c.Codec
+        closed := c.closed
+
+        c.mu.RUnlock()
+
+        if closed </span><span class="cov8" title="1">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">if tts == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf(
+                        "TTS is not configured",
+                )
+        }</span>
+
+        <span class="cov8" title="1">if rtp == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf(
+                        "RTP is not configured",
+                )
+        }</span>
+
+        <span class="cov8" title="1">if pipeline == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf(
+                        "audio pipeline is not configured",
+                )
+        }</span>
+
+        <span class="cov8" title="1">audio, err := tts.Synthesize(
+                ctx,
+                text,
+        )
+        if err != nil </span><span class="cov8" title="1">{
+                return err
+        }</span>
+        <span class="cov8" title="1">pcm := BytesToPCM16(audio.Data)
+        if len(pcm) == 0 </span><span class="cov8" title="1">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+        <span class="cov8" title="1">pcm = pipeline.Resample(
+                pcm,
+                audio.Format.SampleRate,
+                codec.ClockRate,
+        )
+        encoder := pipeline.Encoder()
+        if encoder == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf(
+                        "audio encoder is not configured",
+                )
+        }</span>
+        <span class="cov8" title="1">return rtp.WritePCMRealtime(
+                ctx,
+                encoder,
+                pcm,
+        )</span>
+}
+func (c *SIPCall) CloseResources() error <span class="cov8" title="1">{
+        c.mu.Lock()
+        rtp := c.RTP
+        pipeline := c.Pipeline
+        tts := c.TTS
+        c.RTP = nil
+        c.Pipeline = nil
+        c.TTS = nil
+        c.closed = true
+        c.mu.Unlock()
+        var firstErr error
+        if rtp != nil </span><span class="cov8" title="1">{
+                if err := rtp.Close(); err != nil </span><span class="cov0" title="0">{
+                        firstErr = err
+                }</span>
+        }
+        <span class="cov8" title="1">if pipeline != nil </span><span class="cov8" title="1">{
+                if err := pipeline.Close(); err != nil &amp;&amp; firstErr == nil </span><span class="cov0" title="0">{
+                        firstErr = err
+                }</span>
+        }
+        <span class="cov8" title="1">if tts != nil </span><span class="cov8" title="1">{
+                if err := tts.Close(); err != nil &amp;&amp; firstErr == nil </span><span class="cov0" title="0">{
+                        firstErr = err
+                }</span>
+        }
+        <span class="cov8" title="1">return firstErr</span>
+}
+
+// SIPCall
+// SIPServer
+func NewSIPServer(
+        config SIPConfig,
+        manager *CallManager,
+        codecs *CodecRegistry,
+        stt neurocall.STT,
+        llm neurocall.LLM,
+        tts neurocall.TTS,
+) *SIPServer <span class="cov8" title="1">{
+
+        if manager == nil </span><span class="cov8" title="1">{
+                manager = NewCallManager(
+                        config.RTPMinPort,
+                        config.RTPMaxPort,
+                )
+        }</span>
+
+        <span class="cov8" title="1">if codecs == nil </span><span class="cov8" title="1">{
+                codecs = NewCodecRegistry()
+        }</span>
+        <span class="cov8" title="1">bus := NewEventBus()
+        server := &amp;SIPServer{
+                manager: manager,
+                codecs:  codecs,
+                config:  config,
+                bus:     bus,
+        }
+        manager.SetEventBus(bus)
+        if stt != nil </span><span class="cov8" title="1">{
+                server.stt = NewSTTEngine(stt)
+        }</span>
+
+        <span class="cov8" title="1">if llm != nil </span><span class="cov0" title="0">{
+                server.llm = NewLLMEngine(llm)
+        }</span>
+
+        <span class="cov8" title="1">if tts != nil </span><span class="cov0" title="0">{
+                server.tts = NewTTSEngine(tts)
+        }</span>
+        <span class="cov8" title="1">if server.llm != nil </span><span class="cov0" title="0">{
+                server.conversation =
+                        NewConversationEngine(
+                                server.llm,
+                                bus,
+                        )
+        }</span>
+
+        <span class="cov8" title="1">if server.tts != nil </span><span class="cov0" title="0">{
+                server.voice =
+                        NewVoiceResponseEngine(
+                                server.tts,
+                                bus,
+                        )
+        }</span>
+
+        <span class="cov8" title="1">return server</span>
+}
+func (s *SIPServer) Listen(ctx context.Context) error <span class="cov8" title="1">{
+
+        s.mu.Lock()
+
+        if s.conn != nil </span><span class="cov0" title="0">{
+                s.mu.Unlock()
+
+                return fmt.Errorf(
+                        "SIP server already listening",
+                )
+        }</span>
+
+        <span class="cov8" title="1">addr := &amp;net.UDPAddr{
+                IP: net.ParseIP(
+                        s.config.ListenIP,
+                ),
+                Port: s.config.SIPPort,
+        }
+
+        conn, err := net.ListenUDP(
+                "udp",
+                addr,
+        )
+
+        if err != nil </span><span class="cov0" title="0">{
+                s.mu.Unlock()
+                return err
+        }</span>
+
+        <span class="cov8" title="1">serverCtx, cancel :=
+                context.WithCancel(ctx)
+
+        s.conn = conn
+        s.ctx = serverCtx
+        s.cancel = cancel
+
+        s.mu.Unlock()
+
+        go s.readLoop(serverCtx)
+
+        return nil</span>
+}
+func (s *SIPServer) Stop() error <span class="cov8" title="1">{
+        s.mu.Lock()
+        conn := s.conn
+        cancel := s.cancel
+        s.conn = nil
+        s.cancel = nil
+        s.mu.Unlock()
+        if cancel != nil </span><span class="cov8" title="1">{
+                cancel()
+        }</span>
+        <span class="cov8" title="1">if conn != nil </span><span class="cov8" title="1">{
+                _ = conn.Close()
+        }</span>
+        <span class="cov8" title="1">if s.manager != nil </span><span class="cov8" title="1">{
+                for _, call := range s.manager.List() </span><span class="cov8" title="1">{
+                        if call == nil </span><span class="cov0" title="0">{
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">_ = s.manager.Remove(call.CallID)</span>
+                }
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+func (s *SIPServer) readLoop(ctx context.Context) <span class="cov8" title="1">{
+
+        buffer := make(
+                []byte,
+                65535,
+        )
+
+        for </span><span class="cov8" title="1">{
+
+                select </span>{
+                case &lt;-ctx.Done():<span class="cov8" title="1">
+                        return</span>
+
+                default:<span class="cov8" title="1"></span>
+                }
+
+                <span class="cov8" title="1">s.mu.RLock()
+                conn := s.conn
+                s.mu.RUnlock()
+
+                if conn == nil </span><span class="cov0" title="0">{
+                        return
+                }</span>
+
+                <span class="cov8" title="1">n, remote, err :=
+                        conn.ReadFromUDP(buffer)
+
+                if err != nil </span><span class="cov8" title="1">{
+                        select </span>{
+                        case &lt;-ctx.Done():<span class="cov8" title="1">
+                                return</span>
+                        default:<span class="cov0" title="0">
+                                continue</span>
+                        }
+                }
+
+                <span class="cov8" title="1">data := append(
+                        []byte(nil),
+                        buffer[:n]...,
+                )
+
+                go func(
+                        data []byte,
+                        remote *net.UDPAddr,
+                ) </span><span class="cov8" title="1">{
+                        if err := s.handle(ctx, data, remote); err != nil </span><span class="cov0" title="0">{
+                                fmt.Printf(
+                                        "SIP handle error from %s: %v\n",
+                                        remote,
+                                        err,
+                                )
+                        }</span>
+                }(data, remote)
+        }
+}
+func (s *SIPServer) handle(ctx context.Context, data []byte, remote *net.UDPAddr) error <span class="cov8" title="1">{
+        message, err := ParseSIPMessage(data)
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">switch message.Method() </span>{
+        case "INVITE":<span class="cov8" title="1">
+                return s.handleINVITE(
+                        ctx,
+                        message,
+                        remote,
+                )</span>
+        case "ACK":<span class="cov8" title="1">
+                return s.handleACK(
+                        ctx,
+                        message,
+                        remote,
+                )</span>
+        case "BYE":<span class="cov0" title="0">
+                return s.handleBYE(
+                        ctx,
+                        message,
+                        remote,
+                )</span>
+        case "OPTIONS":<span class="cov0" title="0">
+                return s.handleOPTIONS(
+                        ctx,
+                        message,
+                        remote,
+                )</span>
+        default:<span class="cov0" title="0">
+                return s.sendResponse(
+                        message,
+                        remote,
+                        501,
+                        "Not Implemented",
+                        nil,
+                )</span>
+        }
+}
+func (s *SIPServer) sendResponse(req *SIPMessage, remote *net.UDPAddr, code int, reason string, body []byte) error <span class="cov8" title="1">{
+
+        data := BuildSIPResponse(
+                req,
+                code,
+                reason,
+                body,
+        )
+
+        s.mu.RLock()
+        conn := s.conn
+        s.mu.RUnlock()
+
+        if conn == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">_, err := conn.WriteToUDP(
+                data,
+                remote,
+        )
+
+        return err</span>
+}
+func (s *SIPServer) handleINVITE(_ context.Context, req *SIPMessage, remote *net.UDPAddr) error <span class="cov8" title="1">{
+        if err := s.sendResponse(req, remote, 100, "Trying", nil); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">if s.stt == nil </span><span class="cov0" title="0">{
+                return s.sendResponse(req, remote, 503, "Service Unavailable", nil)
+        }</span>
+        <span class="cov8" title="1">media, err := ParseSDP(req.Body)
+        if err != nil </span><span class="cov0" title="0">{
+                return s.sendResponse(req, remote, 488, "Not Acceptable Here", nil)
+        }</span>
+        <span class="cov8" title="1">codec, err := s.codecs.Negotiate(media.Codecs)
+        if err != nil </span><span class="cov0" title="0">{
+                return s.sendResponse(req, remote, 488, "Not Acceptable Here", nil)
+        }</span>
+        <span class="cov8" title="1">callID := req.Headers["call-id"]
+        if callID == "" </span><span class="cov0" title="0">{
+                return s.sendResponse(req, remote, 400, "Bad Request", nil)
+        }</span>
+        <span class="cov8" title="1">var ttsPlayback *TTSPlayback
+        if s.tts != nil </span><span class="cov0" title="0">{
+                ttsPlayback, err = NewTTSPlayback(s.tts)
+                if err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+        }
+        <span class="cov8" title="1">cleanup := func() </span><span class="cov0" title="0">{
+                if s.voice != nil </span><span class="cov0" title="0">{
+                        _ = s.voice.RemoveCall(callID)
+                }</span>
+
+                <span class="cov0" title="0">_ = s.manager.Remove(callID)</span>
+        }
+        // --------------------
+        // Create call
+        // --------------------
+        <span class="cov8" title="1">call := &amp;SIPCall{
+                CallID:     callID,
+                RemoteIP:   media.IP,
+                RemotePort: media.Port,
+                RemoteAddr: remote,
+                Codec:      codec,
+                TTS:        ttsPlayback,
+        }
+        if s.voice != nil </span><span class="cov0" title="0">{
+                if err := s.voice.AddCall(call); err != nil </span><span class="cov0" title="0">{
+                        cleanup()
+                        return err
+                }</span>
+        }
+        // --------------------
+        // Register call
+        // --------------------
+        <span class="cov8" title="1">if err := s.manager.Add(call); err != nil </span><span class="cov0" title="0">{
+                cleanup()
+                return err
+        }</span>
+        <span class="cov8" title="1">session, err := s.manager.CreateSession(call)
+        if err != nil </span><span class="cov0" title="0">{
+                cleanup()
+                return err
+        }</span>
+
+        <span class="cov8" title="1">sttWorker, err := NewSTTWorker(
+                s.stt,
+                session.Events,
+                callID,
+                16,
+        )
+        if err != nil </span><span class="cov0" title="0">{
+                cleanup()
+                return err
+        }</span>
+
+        <span class="cov8" title="1">if err := session.SetSTTWorker(sttWorker); err != nil </span><span class="cov0" title="0">{
+                cleanup()
+                return err
+        }</span>
+
+        <span class="cov8" title="1">if err := call.SetSTTWorker(sttWorker); err != nil </span><span class="cov0" title="0">{
+                cleanup()
+                return err
+        }</span>
+
+        <span class="cov8" title="1">if s.llm != nil </span><span class="cov0" title="0">{
+                if err := session.ConfigureConversation(s.llm); err != nil </span><span class="cov0" title="0">{
+                        cleanup()
+                        return err
+                }</span>
+        }
+
+        <span class="cov8" title="1">if s.tts != nil </span><span class="cov0" title="0">{
+                if err := session.ConfigureVoice(s.tts); err != nil </span><span class="cov0" title="0">{
+                        cleanup()
+                        return err
+                }</span>
+        }
+
+        // Allocate RTP
+        <span class="cov8" title="1">port, err := s.manager.ports.Allocate()
+        if err != nil </span><span class="cov0" title="0">{
+                cleanup()
+                return err
+        }</span>
+
+        <span class="cov8" title="1">call.mu.Lock()
+        call.LocalRTPPort = port
+        call.mu.Unlock()
+
+        // Start RTP
+        if err := call.StartRTP(s.config.ListenIP); err != nil </span><span class="cov0" title="0">{
+                cleanup()
+                return err
+        }</span>
+
+        // Start Audio
+        <span class="cov8" title="1">if err := call.StartAudio(s.configToAudioConfig()); err != nil </span><span class="cov0" title="0">{
+                cleanup()
+                return err
+        }</span>
+
+        // VAD + Segmenter
+        <span class="cov8" title="1">vad := NewEnergyVAD(500)
+
+        segmenter := NewAudioSegmenter(
+                vad,
+                s.configToAudioConfig(),
+        )
+
+        call.mu.Lock()
+        call.VAD = vad
+        call.Segmenter = segmenter
+        call.mu.Unlock()
+
+        // Start Session
+        if err := session.Start(); err != nil </span><span class="cov0" title="0">{
+                cleanup()
+                return err
+        }</span>
+
+        // Start RTP receive → STT
+        // call.StartReceiveLoop()
+
+        // SDP Answer
+        <span class="cov8" title="1">body := BuildSDPAnswer(call, s.config)
+        // --------------------
+        // 200 OK
+        // --------------------
+        if err := s.sendResponse(req, remote, 200, "OK", body); err != nil </span><span class="cov0" title="0">{
+                cleanup()
+                return err
+        }</span>
+        <span class="cov8" title="1">return nil</span>
+}
+func (s *SIPServer) handleACK(_ context.Context, req *SIPMessage, _ *net.UDPAddr) error <span class="cov8" title="1">{
+        callID := req.Headers["call-id"]
+        if callID == "" </span><span class="cov0" title="0">{
+                return neurocall.ErrCallNotFound
+        }</span>
+        <span class="cov8" title="1">call, err := s.manager.Get(callID)
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">if !call.Answered() </span><span class="cov8" title="1">{
+                if err := call.Answer(); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov8" title="1">call.StartReceiveLoop()</span>
+        }
+        <span class="cov8" title="1">session, err := s.manager.GetSession(callID)
+        if err == nil </span><span class="cov8" title="1">{
+                session.Events.Publish(Event{
+                        Name: EventCallAnswered,
+                        Data: session,
+                })
+        }</span>
+        <span class="cov8" title="1">return nil</span>
+}
+func (s *SIPServer) handleBYE(_ context.Context, req *SIPMessage, remote *net.UDPAddr) error <span class="cov0" title="0">{
+        callID := req.Headers["call-id"]
+        if callID == "" </span><span class="cov0" title="0">{
+                return s.sendResponse(req, remote, 400, "Bad Request", nil)
+        }</span>
+        <span class="cov0" title="0">call, err := s.manager.Get(callID)
+        if err != nil </span><span class="cov0" title="0">{
+                return s.sendResponse(req, remote, 481, "Call/Transaction Does Not Exist", nil)
+        }</span>
+        <span class="cov0" title="0">if err := s.sendResponse(req, remote, 200, "OK", nil); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov0" title="0">_ = call.Hangup()
+        if s.voice != nil </span><span class="cov0" title="0">{
+                _ = s.voice.RemoveCall(callID)
+        }</span>
+        <span class="cov0" title="0">return s.manager.Remove(callID)</span>
+}
+func (s *SIPServer) handleOPTIONS(_ context.Context, req *SIPMessage, remote *net.UDPAddr) error <span class="cov0" title="0">{
+
+        return s.sendResponse(
+                req,
+                remote,
+                200,
+                "OK",
+                nil,
+        )
+}</span>
+func (s *SIPServer) MediaIP() string <span class="cov0" title="0">{
+        if s.config.ExternalIP != "" </span><span class="cov0" title="0">{
+                return s.config.ExternalIP
+        }</span>
+        <span class="cov0" title="0">if s.config.ListenIP != "" &amp;&amp;
+                s.config.ListenIP != "0.0.0.0" &amp;&amp;
+                s.config.ListenIP != "::" </span><span class="cov0" title="0">{
+                return s.config.ListenIP
+        }</span>
+        <span class="cov0" title="0">return "127.0.0.1"</span>
+}
+func (s *SIPServer) configToAudioConfig() AudioConfig <span class="cov8" title="1">{
+        return AudioConfig{
+                SampleRate: DefaultAudioSampleRate,
+                Channels:   DefaultAudioChannels,
+                FrameSize:  DefaultAudioFrameSize,
+                BufferSize: 32,
+        }
+}</span>
+
+// SIPServer
+// SIPMessage
+func (m *SIPMessage) Method() string <span class="cov8" title="1">{
+        fields := strings.Fields(m.StartLine)
+
+        if len(fields) == 0 </span><span class="cov0" title="0">{
+                return ""
+        }</span>
+
+        <span class="cov8" title="1">return fields[0]</span>
+}
+
+// SIPMessage
+// PCMU
+func (PCMU) Encode(pcm []int16) []byte <span class="cov8" title="1">{
+        out := make([]byte, len(pcm))
+
+        for i, sample := range pcm </span><span class="cov8" title="1">{
+                out[i] = linearToMuLaw(sample)
+        }</span>
+
+        <span class="cov8" title="1">return out</span>
+}
+func (PCMU) Decode(data []byte) []int16 <span class="cov8" title="1">{
+        out := make([]int16, len(data))
+
+        for i, sample := range data </span><span class="cov8" title="1">{
+                out[i] = muLawToLinear(sample)
+        }</span>
+
+        <span class="cov8" title="1">return out</span>
+}
+
+// PCMU
+// PCMA
+func (PCMA) Encode(pcm []int16) []byte <span class="cov8" title="1">{
+        out := make([]byte, len(pcm))
+
+        for i, sample := range pcm </span><span class="cov8" title="1">{
+                out[i] = linearToALaw(sample)
+        }</span>
+
+        <span class="cov8" title="1">return out</span>
+}
+func (PCMA) Decode(data []byte) []int16 <span class="cov8" title="1">{
+        out := make([]int16, len(data))
+
+        for i, sample := range data </span><span class="cov8" title="1">{
+                out[i] = aLawToLinear(sample)
+        }</span>
+
+        <span class="cov8" title="1">return out</span>
+}
+
+// PCMA
+// AudioEngine
+func NewAudioEngine(
+        pipeline *AudioPipeline,
+) *AudioEngine <span class="cov0" title="0">{
+
+        return &amp;AudioEngine{
+                pipeline: pipeline,
+        }
+}</span>
+func (e *AudioEngine) Start() error <span class="cov0" title="0">{
+
+        e.mu.Lock()
+
+        if e.running </span><span class="cov0" title="0">{
+                e.mu.Unlock()
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">e.running = true
+
+        e.mu.Unlock()
+
+        e.pipeline.Start()
+
+        return nil</span>
+}
+
+// AudioEngine
+// STTEngine
+func NewSTTEngine(
+        stt neurocall.STT,
+) *STTEngine <span class="cov8" title="1">{
+
+        ctx, cancel := context.WithCancel(
+                context.Background(),
+        )
+
+        return &amp;STTEngine{
+                stt:    stt,
+                ctx:    ctx,
+                cancel: cancel,
+        }
+}</span>
+func (e *STTEngine) SetSTT(
+        stt neurocall.STT,
+) <span class="cov0" title="0">{
+        e.mu.Lock()
+        defer e.mu.Unlock()
+
+        e.stt = stt
+}</span>
+func (e *STTEngine) Transcribe(
+        ctx context.Context,
+        segment neurocall.AudioSegment,
+) (neurocall.Transcript, error) <span class="cov8" title="1">{
+
+        e.mu.RLock()
+        stt := e.stt
+        engineCtx := e.ctx
+        e.mu.RUnlock()
+
+        if stt == nil </span><span class="cov8" title="1">{
+                return neurocall.Transcript{}, fmt.Errorf(
+                        "STT is not configured",
+                )
+        }</span>
+
+        <span class="cov8" title="1">if ctx == nil </span><span class="cov0" title="0">{
+                ctx = engineCtx
+        }</span>
+
+        <span class="cov8" title="1">return stt.Transcribe(
+                ctx,
+                segment,
+        )</span>
+}
+func (e *STTEngine) Close() <span class="cov8" title="1">{
+
+        e.mu.Lock()
+
+        cancel := e.cancel
+        e.cancel = nil
+
+        e.mu.Unlock()
+
+        if cancel != nil </span><span class="cov8" title="1">{
+                cancel()
+        }</span>
+}
+
+// STTEngine
+// STTWorker
+func NewSTTWorker(
+        engine *STTEngine,
+        bus *EventBus,
+        callID string,
+        bufferSize int,
+) (*STTWorker, error) <span class="cov8" title="1">{
+
+        if engine == nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("STT engine is nil")
+        }</span>
+
+        <span class="cov8" title="1">if bus == nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("event bus is nil")
+        }</span>
+
+        <span class="cov8" title="1">if callID == "" </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("call ID is empty")
+        }</span>
+
+        <span class="cov8" title="1">if bufferSize &lt;= 0 </span><span class="cov8" title="1">{
+                bufferSize = 16
+        }</span>
+
+        <span class="cov8" title="1">ctx, cancel := context.WithCancel(
+                context.Background(),
+        )
+
+        return &amp;STTWorker{
+                engine: engine,
+                bus:    bus,
+                callID: callID,
+                input:  make(chan neurocall.AudioSegment, bufferSize),
+                ctx:    ctx,
+                cancel: cancel,
+        }, nil</span>
+}
+func (w *STTWorker) SetStreamingSTT(
+        stt neurocall.StreamingSTT,
+) <span class="cov0" title="0">{
+        w.mu.Lock()
+        defer w.mu.Unlock()
+
+        w.streaming = stt
+}</span>
+func (w *STTWorker) Push(segment neurocall.AudioSegment) error <span class="cov8" title="1">{
+        if len(segment.Data) == 0 </span><span class="cov8" title="1">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+        <span class="cov8" title="1">w.mu.Lock()
+
+        if w.stopped </span><span class="cov8" title="1">{
+                w.mu.Unlock()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">input := w.input
+        ctx := w.ctx
+
+        w.mu.Unlock()
+
+        select </span>{
+
+        case &lt;-ctx.Done():<span class="cov0" title="0">
+                return neurocall.ErrCallClosed</span>
+
+        case input &lt;- segment:<span class="cov8" title="1">
+                return nil</span>
+        }
+}
+func (w *STTWorker) Start() error <span class="cov8" title="1">{
+        w.mu.Lock()
+
+        if w.stopped </span><span class="cov8" title="1">{
+                w.mu.Unlock()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">if w.running </span><span class="cov8" title="1">{
+                w.mu.Unlock()
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">w.running = true
+        streaming := w.streaming
+        ctx := w.ctx
+
+        w.mu.Unlock()
+
+        if streaming != nil </span><span class="cov0" title="0">{
+                if err := streaming.Start(ctx); err != nil </span><span class="cov0" title="0">{
+                        w.mu.Lock()
+                        w.running = false
+                        w.mu.Unlock()
+                        return err
+                }</span>
+
+                <span class="cov0" title="0">go w.runStreaming(streaming)</span>
+        }
+
+        <span class="cov8" title="1">go w.run()
+
+        return nil</span>
+}
+func (w *STTWorker) runStreaming(streaming neurocall.StreamingSTT) <span class="cov0" title="0">{
+        events := streaming.Events()
+
+        for </span><span class="cov0" title="0">{
+                select </span>{
+                case &lt;-w.ctx.Done():<span class="cov0" title="0">
+                        return</span>
+                case event, ok := &lt;-events:<span class="cov0" title="0">
+                        if !ok </span><span class="cov0" title="0">{
+                                return
+                        }</span>
+                        <span class="cov0" title="0">w.bus.Publish(Event{
+                                Name: EventSTTEvent,
+                                Data: STTEventData{
+                                        CallID: w.callID,
+                                        Event:  event,
+                                },
+                        })</span>
+                }
+        }
+}
+func (w *STTWorker) run() <span class="cov8" title="1">{
+        for </span><span class="cov8" title="1">{
+                select </span>{
+
+                case &lt;-w.ctx.Done():<span class="cov8" title="1">
+                        return</span>
+
+                case segment, ok := &lt;-w.input:<span class="cov8" title="1">
+                        if !ok </span><span class="cov0" title="0">{
+                                return
+                        }</span>
+
+                        <span class="cov8" title="1">transcript, err := w.engine.Transcribe(
+                                w.ctx,
+                                segment,
+                        )
+
+                        if err != nil </span><span class="cov8" title="1">{
+                                w.bus.Publish(Event{
+                                        Name: EventSTTError,
+                                        Data: STTErrorEvent{
+                                                CallID: w.callID,
+                                                Err:    err,
+                                        },
+                                })
+
+                                continue</span>
+                        }
+
+                        <span class="cov8" title="1">w.bus.Publish(Event{
+                                Name: EventTranscript,
+                                Data: TranscriptEvent{
+                                        CallID:     w.callID,
+                                        Transcript: transcript,
+                                },
+                        })</span>
+                }
+        }
+}
+func (w *STTWorker) Stop() <span class="cov8" title="1">{
+        w.mu.Lock()
+
+        if w.stopped </span><span class="cov8" title="1">{
+                w.mu.Unlock()
+                return
+        }</span>
+
+        <span class="cov8" title="1">w.stopped = true
+        w.running = false
+
+        cancel := w.cancel
+        streaming := w.streaming
+
+        w.mu.Unlock()
+
+        if cancel != nil </span><span class="cov8" title="1">{
+                cancel()
+        }</span>
+
+        <span class="cov8" title="1">if streaming != nil </span><span class="cov0" title="0">{
+                _ = streaming.Close()
+        }</span>
+}
+
+// STTWorker
+// EnergyVAD
+func NewEnergyVAD(threshold int64) *EnergyVAD <span class="cov8" title="1">{
+        if threshold &lt;= 0 </span><span class="cov0" title="0">{
+                threshold = 500
+        }</span>
+
+        <span class="cov8" title="1">return &amp;EnergyVAD{
+                Threshold: threshold,
+        }</span>
+}
+func (v *EnergyVAD) Process(
+        ctx context.Context,
+        frame neurocall.AudioFrame,
+) (bool, error) <span class="cov8" title="1">{
+
+        select </span>{
+        case &lt;-ctx.Done():<span class="cov0" title="0">
+                return false, ctx.Err()</span>
+
+        default:<span class="cov8" title="1"></span>
+        }
+
+        <span class="cov8" title="1">if len(frame.Data) == 0 </span><span class="cov0" title="0">{
+                return false, nil
+        }</span>
+
+        <span class="cov8" title="1">var energy int64
+
+        for _, sample := range frame.Data </span><span class="cov8" title="1">{
+                value := int64(sample)
+
+                if value &lt; 0 </span><span class="cov8" title="1">{
+                        value = -value
+                }</span>
+
+                <span class="cov8" title="1">energy += value</span>
+        }
+
+        <span class="cov8" title="1">energy /= int64(len(frame.Data))
+
+        return energy &gt;= v.Threshold, nil</span>
+}
+
+// EnergyVAD
+// AudioSegmenter
+func NewAudioSegmenter(
+        vad neurocall.VAD,
+        cfg AudioConfig,
+) *AudioSegmenter <span class="cov8" title="1">{
+        frameDuration := time.Second
+        if cfg.SampleRate &gt; 0 </span><span class="cov8" title="1">{
+                frameDuration =
+                        time.Duration(
+                                float64(cfg.FrameSize) /
+                                        float64(cfg.SampleRate) *
+                                        float64(time.Second),
+                        )
+        }</span>
+
+        <span class="cov8" title="1">return &amp;AudioSegmenter{
+                vad: vad,
+
+                buffer: make(
+                        []int16,
+                        0,
+                        cfg.SampleRate*5,
+                ),
+
+                maxFrames: 250,
+
+                frameDuration: frameDuration,
+
+                sampleRate: cfg.SampleRate,
+
+                channels: cfg.Channels,
+        }</span>
+}
+func (s *AudioSegmenter) Process(
+        ctx context.Context,
+        frame neurocall.AudioFrame,
+) ([]neurocall.AudioSegment, error) <span class="cov8" title="1">{
+
+        s.mu.Lock()
+        defer s.mu.Unlock()
+
+        if s.vad == nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf(
+                        "VAD is not configured",
+                )
+        }</span>
+
+        <span class="cov8" title="1">speech, err :=
+                s.vad.Process(ctx, frame)
+
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        <span class="cov8" title="1">if speech </span><span class="cov8" title="1">{
+                return s.processSpeech(frame), nil
+        }</span>
+
+        <span class="cov8" title="1">return s.processSilence(frame), nil</span>
+}
+func (s *AudioSegmenter) processSpeech(
+        frame neurocall.AudioFrame,
+) []neurocall.AudioSegment <span class="cov8" title="1">{
+        if !s.active </span><span class="cov8" title="1">{
+                s.active = true
+                s.start = time.Duration(
+                        frame.Timestamp,
+                ) * time.Millisecond
+                s.frameCount = 0
+        }</span>
+        <span class="cov8" title="1">s.silenceFrames = 0
+        s.buffer = append(
+                s.buffer,
+                frame.Data...,
+        )
+        s.frameCount++
+        if s.maxFrames &gt; 0 &amp;&amp; s.frameCount &gt;= s.maxFrames </span><span class="cov0" title="0">{
+                return s.flushLocked(true)
+        }</span>
+        <span class="cov8" title="1">s.end += s.frameDuration
+        return nil</span>
+}
+func (s *AudioSegmenter) processSilence(
+        _ neurocall.AudioFrame,
+) []neurocall.AudioSegment <span class="cov8" title="1">{
+        if !s.active </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">s.silenceFrames++
+        s.end += s.frameDuration
+        // ~200ms silence
+        if s.silenceFrames &gt;= 10 </span><span class="cov8" title="1">{
+                return s.flushLocked(true)
+        }</span>
+        <span class="cov8" title="1">return nil</span>
+}
+func (s *AudioSegmenter) flushLocked(
+        final bool,
+) []neurocall.AudioSegment <span class="cov8" title="1">{
+
+        if len(s.buffer) == 0 </span><span class="cov0" title="0">{
+                s.resetLocked()
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">data := make(
+                []int16,
+                len(s.buffer),
+        )
+
+        copy(data, s.buffer)
+
+        segment := neurocall.AudioSegment{
+                Data:       data,
+                SampleRate: s.sampleRate,
+                Channels:   s.channels,
+                Start:      s.start,
+                End:        s.end,
+                Final:      final,
+        }
+        s.resetLocked()
+        return []neurocall.AudioSegment{
+                segment,
+        }</span>
+}
+func (s *AudioSegmenter) resetLocked() <span class="cov8" title="1">{
+        s.buffer = s.buffer[:0]
+
+        s.active = false
+
+        s.silenceFrames = 0
+
+        s.start = 0
+        s.end = 0
+}</span>
+func (s *AudioSegmenter) Flush(
+        ctx context.Context,
+) ([]neurocall.AudioSegment, error) <span class="cov0" title="0">{
+
+        select </span>{
+        case &lt;-ctx.Done():<span class="cov0" title="0">
+                return nil, ctx.Err()</span>
+
+        default:<span class="cov0" title="0"></span>
+        }
+
+        <span class="cov0" title="0">s.mu.Lock()
+        defer s.mu.Unlock()
+
+        return s.flushLocked(true), nil</span>
+}
+func (s *AudioSegmenter) Reset() <span class="cov0" title="0">{
+        s.mu.Lock()
+        defer s.mu.Unlock()
+        s.frameCount = 0
+        s.resetLocked()
+}</span>
+
+// AudioSegmenter
+// LLMEngine
+func NewLLMEngine(
+        llm neurocall.LLM,
+) *LLMEngine <span class="cov8" title="1">{
+        return &amp;LLMEngine{
+                llm: llm,
+        }
+}</span>
+func (e *LLMEngine) SetLLM(
+        llm neurocall.LLM,
+) <span class="cov0" title="0">{
+        e.mu.Lock()
+        defer e.mu.Unlock()
+        e.llm = llm
+}</span>
+func (e *LLMEngine) Chat(
+        messages []neurocall.Message,
+) (neurocall.Message, error) <span class="cov8" title="1">{
+        e.mu.RLock()
+        llm := e.llm
+        e.mu.RUnlock()
+        if llm == nil </span><span class="cov8" title="1">{
+                return neurocall.Message{},
+                        fmt.Errorf(
+                                "LLM is not configured",
+                        )
+        }</span>
+        <span class="cov8" title="1">return llm.Chat(messages)</span>
+}
+
+// LLMEngine
+// CallMemory
+func NewCallMemory() *CallMemory <span class="cov8" title="1">{
+        return &amp;CallMemory{
+                values: make(map[string]any),
+        }
+}</span>
+func (m *CallMemory) Set(
+        key string,
+        value any,
+) <span class="cov8" title="1">{
+        if m == nil || key == "" </span><span class="cov0" title="0">{
+                return
+        }</span>
+
+        <span class="cov8" title="1">m.mu.Lock()
+        defer m.mu.Unlock()
+
+        m.values[key] = value</span>
+}
+func (m *CallMemory) Get(
+        key string,
+) (any, bool) <span class="cov8" title="1">{
+        if m == nil || key == "" </span><span class="cov0" title="0">{
+                return nil, false
+        }</span>
+
+        <span class="cov8" title="1">m.mu.RLock()
+        defer m.mu.RUnlock()
+
+        value, ok := m.values[key]
+
+        return value, ok</span>
+}
+func (m *CallMemory) Delete(
+        key string,
+) <span class="cov8" title="1">{
+        if m == nil || key == "" </span><span class="cov0" title="0">{
+                return
+        }</span>
+
+        <span class="cov8" title="1">m.mu.Lock()
+        defer m.mu.Unlock()
+
+        delete(m.values, key)</span>
+}
+func (m *CallMemory) Clear() <span class="cov8" title="1">{
+        if m == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+
+        <span class="cov8" title="1">m.mu.Lock()
+        defer m.mu.Unlock()
+
+        m.values = make(map[string]any)</span>
+}
+
+// CallMemory
+// Conversation
+func NewConversation() *Conversation <span class="cov8" title="1">{
+        return &amp;Conversation{
+                messages: make([]neurocall.Message, 0),
+                memory:   NewCallMemory(),
+        }
+}</span>
+func (c *Conversation) AddMessage(
+        message neurocall.Message,
+) <span class="cov8" title="1">{
+        if c == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+
+        <span class="cov8" title="1">c.mu.Lock()
+        defer c.mu.Unlock()
+
+        c.messages = append(
+                c.messages,
+                message,
+        )</span>
+}
+func (c *Conversation) Messages() []neurocall.Message <span class="cov8" title="1">{
+        if c == nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">c.mu.RLock()
+        defer c.mu.RUnlock()
+
+        return append(
+                []neurocall.Message(nil),
+                c.messages...,
+        )</span>
+}
+func (c *Conversation) Clear() <span class="cov0" title="0">{
+        if c == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+
+        <span class="cov0" title="0">c.mu.Lock()
+        defer c.mu.Unlock()
+
+        c.messages = c.messages[:0]</span>
+}
+func (c *Conversation) Memory() *CallMemory <span class="cov0" title="0">{
+        if c == nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">c.mu.RLock()
+        defer c.mu.RUnlock()
+
+        return c.memory</span>
+}
+func (c *Conversation) SetMemory(
+        memory *CallMemory,
+) <span class="cov0" title="0">{
+        if c == nil || memory == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+
+        <span class="cov0" title="0">c.mu.Lock()
+        defer c.mu.Unlock()
+
+        c.memory = memory</span>
+}
+
+// Conversation
+// ConversationEngine
+func NewConversationEngine(
+        llm *LLMEngine,
+        bus *EventBus,
+) *ConversationEngine <span class="cov8" title="1">{
+        return &amp;ConversationEngine{
+                llm:           llm,
+                bus:           bus,
+                conversations: make(map[string]*Conversation),
+        }
+}</span>
+func (e *ConversationEngine) SetConversation(
+        callID string,
+        conversation *Conversation,
+) error <span class="cov8" title="1">{
+        if e == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("conversation engine is nil")
+        }</span>
+
+        <span class="cov8" title="1">if callID == "" </span><span class="cov0" title="0">{
+                return fmt.Errorf("call ID is empty")
+        }</span>
+
+        <span class="cov8" title="1">if conversation == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("conversation is nil")
+        }</span>
+
+        <span class="cov8" title="1">e.mu.Lock()
+        defer e.mu.Unlock()
+
+        if e.conversations == nil </span><span class="cov0" title="0">{
+                e.conversations = make(map[string]*Conversation)
+        }</span>
+
+        <span class="cov8" title="1">e.conversations[callID] = conversation
+
+        return nil</span>
+}
+func (e *ConversationEngine) GetOrCreate(
+        callID string,
+) (*Conversation, error) <span class="cov8" title="1">{
+        if e == nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("conversation engine is nil")
+        }</span>
+        <span class="cov8" title="1">if callID == "" </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("call ID is empty")
+        }</span>
+        <span class="cov8" title="1">e.mu.Lock()
+        defer e.mu.Unlock()
+        if e.conversations == nil </span><span class="cov0" title="0">{
+                e.conversations = make(map[string]*Conversation)
+        }</span>
+        <span class="cov8" title="1">if conversation, exists := e.conversations[callID]; exists </span><span class="cov8" title="1">{
+                return conversation, nil
+        }</span>
+        <span class="cov8" title="1">conversation := NewConversation()
+        e.conversations[callID] = conversation
+        return conversation, nil</span>
+}
+func (e *ConversationEngine) Remove(callID string) error <span class="cov8" title="1">{
+        if e == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("conversation engine is nil")
+        }</span>
+
+        <span class="cov8" title="1">if callID == "" </span><span class="cov0" title="0">{
+                return fmt.Errorf("call ID is empty")
+        }</span>
+
+        <span class="cov8" title="1">e.mu.Lock()
+        defer e.mu.Unlock()
+
+        if _, exists := e.conversations[callID]; !exists </span><span class="cov0" title="0">{
+                return fmt.Errorf(
+                        "conversation not found: %s",
+                        callID,
+                )
+        }</span>
+
+        <span class="cov8" title="1">delete(e.conversations, callID)
+
+        return nil</span>
+}
+func (e *ConversationEngine) HandleTranscript(
+        event TranscriptEvent,
+) error <span class="cov8" title="1">{
+        if e == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("conversation engine is nil")
+        }</span>
+        <span class="cov8" title="1">if event.CallID == "" </span><span class="cov8" title="1">{
+                return fmt.Errorf("call ID is empty")
+        }</span>
+        <span class="cov8" title="1">text := strings.TrimSpace(event.Transcript.Text)
+        if text == "" </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">conversation, err := e.GetOrCreate(event.CallID)
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">conversation.responseMu.Lock()
+        defer conversation.responseMu.Unlock()
+        conversation.AddMessage(neurocall.Message{
+                Role:    "user",
+                Content: text,
+        })
+        return e.generateResponseLocked(
+                event.CallID,
+                conversation,
+        )</span>
+}
+func (e *ConversationEngine) generateResponseLocked(
+        callID string,
+        conversation *Conversation,
+) error <span class="cov8" title="1">{
+
+        e.mu.RLock()
+
+        llm := e.llm
+        bus := e.bus
+
+        e.mu.RUnlock()
+
+        if llm == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("LLM is not configured")
+        }</span>
+
+        <span class="cov8" title="1">messages := conversation.Messages()
+
+        response, err := llm.Chat(messages)
+        if err != nil </span><span class="cov8" title="1">{
+                if bus != nil </span><span class="cov8" title="1">{
+                        bus.Publish(Event{
+                                Name: EventLLMError,
+                                Data: err,
+                        })
+                }</span>
+
+                <span class="cov8" title="1">return err</span>
+        }
+
+        <span class="cov8" title="1">conversation.AddMessage(response)
+
+        if bus != nil </span><span class="cov8" title="1">{
+                bus.Publish(Event{
+                        Name: EventLLMResponse,
+                        Data: LLMResponseEvent{
+                                CallID:  callID,
+                                Message: response,
+                        },
+                })
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// ConversationEngine
+// TTSEngine
+func NewTTSEngine(tts neurocall.TTS) *TTSEngine <span class="cov8" title="1">{
+        return &amp;TTSEngine{
+                tts: tts,
+        }
+}</span>
+func (e *TTSEngine) SetTTS(tts neurocall.TTS) <span class="cov8" title="1">{
+        e.mu.Lock()
+        defer e.mu.Unlock()
+
+        e.tts = tts
+}</span>
+func (e *TTSEngine) Synthesize(
+        ctx context.Context,
+        text string,
+) (neurocall.AudioStreamData, error) <span class="cov8" title="1">{
+
+        if strings.TrimSpace(text) == "" </span><span class="cov8" title="1">{
+                return neurocall.AudioStreamData{}, fmt.Errorf("text is empty")
+        }</span>
+
+        <span class="cov8" title="1">e.mu.RLock()
+        tts := e.tts
+        e.mu.RUnlock()
+
+        if tts == nil </span><span class="cov8" title="1">{
+                return neurocall.AudioStreamData{}, fmt.Errorf(
+                        "TTS is not configured",
+                )
+        }</span>
+
+        <span class="cov8" title="1">return tts.Synthesize(ctx, text)</span>
+}
+
+// TTSEngine
+// TTSPlayback
+func NewTTSPlayback(
+        engine *TTSEngine,
+) (*TTSPlayback, error) <span class="cov8" title="1">{
+
+        if engine == nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf(
+                        "TTS engine is nil",
+                )
+        }</span>
+
+        <span class="cov8" title="1">ctx, cancel := context.WithCancel(
+                context.Background(),
+        )
+
+        return &amp;TTSPlayback{
+                engine: engine,
+                ctx:    ctx,
+                cancel: cancel,
+        }, nil</span>
+}
+func (p *TTSPlayback) Close() error <span class="cov8" title="1">{
+        if p == nil </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">if p.cancel != nil </span><span class="cov8" title="1">{
+                p.cancel()
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+func (p *TTSPlayback) Synthesize(
+        ctx context.Context,
+        text string,
+) (neurocall.AudioStreamData, error) <span class="cov8" title="1">{
+
+        if p == nil || p.engine == nil </span><span class="cov8" title="1">{
+                return neurocall.AudioStreamData{}, fmt.Errorf(
+                        "TTS playback is not configured",
+                )
+        }</span>
+
+        <span class="cov8" title="1">if ctx == nil </span><span class="cov0" title="0">{
+                ctx = p.ctx
+        }</span>
+
+        <span class="cov8" title="1">return p.engine.Synthesize(
+                ctx,
+                text,
+        )</span>
+}
+
+// TTSPlayback
+// PassthroughAudio
+func (PassthroughAudio) Encode(
+        pcm []int16,
+) []byte <span class="cov0" title="0">{
+        return PCM16ToBytes(pcm)
+}</span>
+func (PassthroughAudio) Decode(
+        data []byte,
+) []int16 <span class="cov0" title="0">{
+        return BytesToPCM16(data)
+}</span>
+
+// PassthroughAudio
+// VoiceResponseEngine
+func NewVoiceResponseEngine(
+        tts *TTSEngine,
+        bus *EventBus,
+) *VoiceResponseEngine <span class="cov8" title="1">{
+
+        engine := &amp;VoiceResponseEngine{
+                calls: make(map[string]*SIPCall),
+                tts:   tts,
+                bus:   bus,
+        }
+
+        if bus != nil </span><span class="cov8" title="1">{
+                bus.Subscribe(
+                        EventLLMResponse,
+                        func(event Event) </span><span class="cov8" title="1">{
+                                data, ok := event.Data.(LLMResponseEvent)
+                                if !ok </span><span class="cov0" title="0">{
+                                        return
+                                }</span>
+                                <span class="cov8" title="1">if err := engine.HandleResponse(data); err != nil </span><span class="cov8" title="1">{
+                                        bus.Publish(Event{
+                                                Name: EventTTSResponseError,
+                                                Data: TTSErrorEvent{
+                                                        CallID: data.CallID,
+                                                        Err:    err,
+                                                },
+                                        })
+                                }</span>
+                        },
+                )
+        }
+        <span class="cov8" title="1">return engine</span>
+}
+func (e *VoiceResponseEngine) AddCall(
+        call *SIPCall,
+) error <span class="cov8" title="1">{
+
+        if call == nil || call.CallID == "" </span><span class="cov0" title="0">{
+                return neurocall.ErrCallNotFound
+        }</span>
+
+        <span class="cov8" title="1">e.mu.Lock()
+        defer e.mu.Unlock()
+
+        if _, exists := e.calls[call.CallID]; exists </span><span class="cov0" title="0">{
+                return fmt.Errorf(
+                        "voice call already exists: %s",
+                        call.CallID,
+                )
+        }</span>
+
+        <span class="cov8" title="1">e.calls[call.CallID] = call
+
+        return nil</span>
+}
+func (e *VoiceResponseEngine) RemoveCall(
+        callID string,
+) error <span class="cov8" title="1">{
+
+        e.mu.Lock()
+        defer e.mu.Unlock()
+
+        if _, exists := e.calls[callID]; !exists </span><span class="cov8" title="1">{
+                return neurocall.ErrCallNotFound
+        }</span>
+
+        <span class="cov8" title="1">delete(e.calls, callID)
+
+        return nil</span>
+}
+func (e *VoiceResponseEngine) GetCall(
+        callID string,
+) (*SIPCall, error) <span class="cov8" title="1">{
+        e.mu.RLock()
+        defer e.mu.RUnlock()
+
+        call, ok := e.calls[callID]
+        if !ok </span><span class="cov8" title="1">{
+                return nil, neurocall.ErrCallNotFound
+        }</span>
+
+        <span class="cov8" title="1">return call, nil</span>
+}
+func (e *VoiceResponseEngine) HandleResponse(
+        event LLMResponseEvent,
+) error <span class="cov8" title="1">{
+        if event.CallID == "" </span><span class="cov8" title="1">{
+                return fmt.Errorf("call ID is empty")
+        }</span>
+
+        <span class="cov8" title="1">text := strings.TrimSpace(event.Message.Content)
+        if text == "" </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">e.mu.RLock()
+        call := e.calls[event.CallID]
+        e.mu.RUnlock()
+
+        if call == nil </span><span class="cov8" title="1">{
+                return neurocall.ErrCallNotFound
+        }</span>
+
+        <span class="cov8" title="1">if call.Closed() </span><span class="cov8" title="1">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">return call.Speak(
+                context.Background(),
+                text,
+        )</span>
+}
+func (e *VoiceResponseEngine) RegisterCall(
+        call *SIPCall,
+) <span class="cov8" title="1">{
+
+        if call == nil </span><span class="cov8" title="1">{
+                return
+        }</span>
+
+        <span class="cov8" title="1">e.mu.Lock()
+        defer e.mu.Unlock()
+
+        e.calls[call.CallID] = call</span>
+}
+
+// VoiceResponseEngine
+// RTPPacket
+func (p *RTPPacket) Marshal() ([]byte, error) <span class="cov8" title="1">{
+        if p == nil </span><span class="cov0" title="0">{
+                return nil, errInvalidRTPPacket
+        }</span>
+
+        <span class="cov8" title="1">if p.Header.Version != 2 </span><span class="cov8" title="1">{
+                return nil, errInvalidRTPPacket
+        }</span>
+
+        <span class="cov8" title="1">if p.Header.CSRCCount != 0 </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf(
+                        "CSRC is not supported yet",
+                )
+        }</span>
+
+        <span class="cov8" title="1">data := make(
+                []byte,
+                12+len(p.Payload),
+        )
+
+        data[0] = p.Header.Version &lt;&lt; 6
+
+        if p.Header.Padding </span><span class="cov0" title="0">{
+                data[0] |= 1 &lt;&lt; 5
+        }</span>
+
+        <span class="cov8" title="1">if p.Header.Extension </span><span class="cov0" title="0">{
+                data[0] |= 1 &lt;&lt; 4
+        }</span>
+
+        <span class="cov8" title="1">data[0] |= p.Header.CSRCCount &amp; 0x0F
+
+        data[1] = p.Header.PayloadType &amp; 0x7F
+
+        if p.Header.Marker </span><span class="cov8" title="1">{
+                data[1] |= 1 &lt;&lt; 7
+        }</span>
+
+        <span class="cov8" title="1">binary.BigEndian.PutUint16(
+                data[2:4],
+                p.Header.SequenceNumber,
+        )
+
+        binary.BigEndian.PutUint32(
+                data[4:8],
+                p.Header.Timestamp,
+        )
+
+        binary.BigEndian.PutUint32(
+                data[8:12],
+                p.Header.SSRC,
+        )
+
+        copy(
+                data[12:],
+                p.Payload,
+        )
+
+        return data, nil</span>
+}
+func (p *RTPPacket) Unmarshal(
+        data []byte,
+) error <span class="cov8" title="1">{
+        if len(data) &lt; 12 </span><span class="cov8" title="1">{
+                return errInvalidRTPPacket
+        }</span>
+        <span class="cov8" title="1">version := data[0] &gt;&gt; 6
+        if version != 2 </span><span class="cov8" title="1">{
+                return errInvalidRTPPacket
+        }</span>
+        <span class="cov8" title="1">padding := data[0]&amp;0x20 != 0
+        extension := data[0]&amp;0x10 != 0
+        csrcCount := data[0] &amp; 0x0F
+        if csrcCount != 0 </span><span class="cov0" title="0">{
+                return fmt.Errorf("CSRC is not supported yet")
+        }</span>
+        <span class="cov8" title="1">header := RTPHeader{
+                Version:        version,
+                Padding:        padding,
+                Extension:      extension,
+                CSRCCount:      csrcCount,
+                Marker:         data[1]&amp;0x80 != 0,
+                PayloadType:    data[1] &amp; 0x7F,
+                SequenceNumber: binary.BigEndian.Uint16(data[2:4]),
+                Timestamp:      binary.BigEndian.Uint32(data[4:8]),
+                SSRC:           binary.BigEndian.Uint32(data[8:12]),
+        }
+        offset := 12
+        if extension </span><span class="cov8" title="1">{
+                if len(data) &lt; offset+4 </span><span class="cov0" title="0">{
+                        return errInvalidRTPPacket
+                }</span>
+                <span class="cov8" title="1">extensionLength := int(binary.BigEndian.Uint16(data[offset+2:offset+4])) * 4
+                offset += 4
+                if len(data) &lt; offset+extensionLength </span><span class="cov8" title="1">{
+                        return errInvalidRTPPacket
+                }</span>
+                <span class="cov0" title="0">offset += extensionLength</span>
+        }
+        <span class="cov8" title="1">payload := data[offset:]
+        if padding </span><span class="cov0" title="0">{
+                if len(payload) == 0 </span><span class="cov0" title="0">{
+                        return errInvalidRTPPacket
+                }</span>
+                <span class="cov0" title="0">paddingLen := int(payload[len(payload)-1])
+                if paddingLen == 0 || paddingLen &gt; len(payload) </span><span class="cov0" title="0">{
+                        return errInvalidRTPPacket
+                }</span>
+                <span class="cov0" title="0">payload = payload[:len(payload)-paddingLen]</span>
+        }
+        <span class="cov8" title="1">p.Payload = append(
+                []byte(nil),
+                payload...,
+        )
+        p.Header = header
+        return nil</span>
+}
+
+// RTPPacket
+// RTPSession
+func NewRTPSession(
+        localIP string,
+        port int,
+        remoteIP net.IP,
+        remotePort int,
+        codec neurocall.Codec,
+) (*RTPSession, error) <span class="cov8" title="1">{
+        if !codec.Valid() </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf(
+                        "invalid codec",
+                )
+        }</span>
+        <span class="cov8" title="1">if remoteIP == nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("invalid remote IP: %s", remoteIP)
+        }</span>
+        <span class="cov8" title="1">localAddr := &amp;net.UDPAddr{
+                IP:   net.ParseIP(localIP),
+                Port: port,
+        }
+        if localAddr.IP == nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("invalid local IP: %s", localIP)
+        }</span>
+        <span class="cov8" title="1">conn, err := net.ListenUDP("udp", localAddr)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">remote := &amp;net.UDPAddr{
+                IP:   remoteIP,
+                Port: remotePort,
+        }
+        return &amp;RTPSession{
+                conn:            conn,
+                remote:          remote,
+                codec:           codec,
+                ssrc:            randomUint32(),
+                sequence:        0,
+                timestamp:       0,
+                sequenceTracker: &amp;RTPSequenceTracker{},
+                jitter:          NewRTPJitterBuffer(50, 30*time.Millisecond),
+                writeInterval:   20 * time.Millisecond,
+        }, nil</span>
+}
+func (s *RTPSession) ReadOrdered() (RTPReadResult, error) <span class="cov8" title="1">{
+        for </span><span class="cov8" title="1">{
+                packet, ready := s.jitter.Pop()
+                if ready </span><span class="cov8" title="1">{
+                        if packet == nil </span><span class="cov8" title="1">{
+                                return RTPReadResult{
+                                        Lost: true,
+                                }, nil
+                        }</span>
+                        <span class="cov8" title="1">return RTPReadResult{
+                                Packet: packet,
+                        }, nil</span>
+                }
+                <span class="cov8" title="1">if s.jitter.HasPackets() </span><span class="cov8" title="1">{
+                        s.jitter.WaitForChange(s.jitter.maxWait)
+                        continue</span>
+                }
+                <span class="cov8" title="1">packet, err := s.Read()
+                if err != nil </span><span class="cov8" title="1">{
+                        return RTPReadResult{}, err
+                }</span>
+                <span class="cov8" title="1">if err := s.jitter.Push(packet); err != nil </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+        }
+}
+func (s *RTPSession) Close() error <span class="cov8" title="1">{
+        s.mu.Lock()
+        if s.closed </span><span class="cov8" title="1">{
+                s.mu.Unlock()
+                return nil
+        }</span>
+        <span class="cov8" title="1">s.closed = true
+        conn := s.conn
+        s.mu.Unlock()
+        if conn == nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">return conn.Close()</span>
+}
+func (s *RTPSession) ReadPCM(decoder neurocall.Decoder) ([]int16, error) <span class="cov8" title="1">{
+
+        if decoder == nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("decoder is nil")
+        }</span>
+
+        <span class="cov8" title="1">s.mu.RLock()
+
+        if s.closed </span><span class="cov8" title="1">{
+                s.mu.RUnlock()
+                return nil, errRTPSessionClosed
+        }</span>
+
+        <span class="cov8" title="1">codec := s.codec
+
+        s.mu.RUnlock()
+
+        result, err := s.ReadOrdered()
+
+        if err != nil </span><span class="cov8" title="1">{
+                return nil, err
+        }</span>
+
+        <span class="cov8" title="1">if result.Lost </span><span class="cov0" title="0">{
+
+                frameSamples := codec.ClockRate / 50
+
+                if frameSamples &lt;= 0 </span><span class="cov0" title="0">{
+                        frameSamples = 160
+                }</span>
+
+                <span class="cov0" title="0">return concealPCM(
+                        codec,
+                        frameSamples,
+                ), nil</span>
+        }
+
+        <span class="cov8" title="1">packet := result.Packet
+
+        if packet.Header.PayloadType != codec.PayloadType </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf(
+                        "unexpected RTP payload type: %d",
+                        packet.Header.PayloadType,
+                )
+        }</span>
+
+        <span class="cov8" title="1">pcm := decoder.Decode(packet.Payload)
+
+        if len(pcm) == 0 </span><span class="cov0" title="0">{
+                return nil, neurocall.ErrInvalidAudio
+        }</span>
+
+        <span class="cov8" title="1">return pcm, nil</span>
+}
+func (s *RTPSession) WritePCM(encoder neurocall.Encoder, pcm []int16) error <span class="cov8" title="1">{
+        if encoder == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("encoder is nil")
+        }</span>
+        <span class="cov8" title="1">if len(pcm) == 0 </span><span class="cov0" title="0">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+        <span class="cov8" title="1">payload := encoder.Encode(pcm)
+        if len(payload) == 0 </span><span class="cov0" title="0">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+        <span class="cov8" title="1">return s.Write(payload, len(pcm))</span>
+}
+func (s *RTPSession) AdvanceTimestamp(samples int) <span class="cov8" title="1">{
+        s.mu.Lock()
+        defer s.mu.Unlock()
+        s.timestamp += uint32(samples)
+}</span>
+func (s *RTPSession) Stats() RTPStats <span class="cov8" title="1">{
+        s.mu.RLock()
+        defer s.mu.RUnlock()
+
+        return s.stats
+}</span>
+func (s *RTPSession) ResetStats() <span class="cov0" title="0">{
+        s.mu.Lock()
+        s.stats = RTPStats{}
+        tracker := s.sequenceTracker
+        s.mu.Unlock()
+        if tracker != nil </span><span class="cov0" title="0">{
+                tracker.Reset()
+        }</span>
+}
+func (s *RTPSession) Read() (*RTPPacket, error) <span class="cov8" title="1">{
+        s.mu.RLock()
+        if s.closed </span><span class="cov8" title="1">{
+                s.mu.RUnlock()
+                return nil, errRTPSessionClosed
+        }</span>
+        <span class="cov8" title="1">conn := s.conn
+        s.mu.RUnlock()
+        if conn == nil </span><span class="cov0" title="0">{
+                return nil, errRTPSessionClosed
+        }</span>
+        <span class="cov8" title="1">buf := make([]byte, 2048)
+        n, _, err := conn.ReadFromUDP(buf)
+        if err != nil </span><span class="cov8" title="1">{
+                s.mu.RLock()
+                closed := s.closed
+                s.mu.RUnlock()
+                if closed </span><span class="cov8" title="1">{
+                        return nil, errRTPSessionClosed
+                }</span>
+                <span class="cov0" title="0">return nil, err</span>
+        }
+        <span class="cov8" title="1">s.mu.Lock()
+        s.stats.BytesReceived += uint64(n)
+        s.mu.Unlock()
+        packet := &amp;RTPPacket{}
+        if err := packet.Unmarshal(buf[:n]); err != nil </span><span class="cov8" title="1">{
+                s.mu.Lock()
+                s.stats.InvalidPackets++
+                s.mu.Unlock()
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">s.sequenceTracker.Update(packet.Header.SequenceNumber)
+        trackerStats := s.sequenceTracker.Stats()
+        s.mu.Lock()
+        s.stats.ReceivedPackets++
+        s.stats.LostPackets = trackerStats.LostPackets
+        s.mu.Unlock()
+        return packet, nil</span>
+}
+func (s *RTPSession) Write(payload []byte, samples int) error <span class="cov8" title="1">{
+
+        if len(payload) == 0 </span><span class="cov0" title="0">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+
+        <span class="cov8" title="1">if samples &lt;= 0 </span><span class="cov0" title="0">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+
+        <span class="cov8" title="1">s.mu.Lock()
+
+        if s.closed </span><span class="cov8" title="1">{
+                s.mu.Unlock()
+                return errRTPSessionClosed
+        }</span>
+
+        <span class="cov8" title="1">conn := s.conn
+        remote := s.remote
+
+        packet := RTPPacket{
+                Header: RTPHeader{
+                        Version:        2,
+                        PayloadType:    s.codec.PayloadType,
+                        SequenceNumber: s.sequence,
+                        Timestamp:      s.timestamp,
+                        SSRC:           s.ssrc,
+                },
+                Payload: append([]byte(nil), payload...),
+        }
+
+        data, err := packet.Marshal()
+
+        if err != nil </span><span class="cov0" title="0">{
+                s.mu.Unlock()
+                return err
+        }</span>
+
+        <span class="cov8" title="1">s.sequence++
+        s.timestamp += uint32(samples)
+
+        s.mu.Unlock()
+
+        if _, err := conn.WriteToUDP(
+                data,
+                remote,
+        ); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">s.mu.Lock()
+
+        s.stats.SentPackets++
+        s.stats.BytesSent += uint64(len(data))
+
+        s.mu.Unlock()
+
+        return nil</span>
+}
+func (s *RTPSession) WritePCMRealtime(ctx context.Context, encoder neurocall.Encoder, pcm []int16) error <span class="cov8" title="1">{
+
+        if encoder == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("encoder is nil")
+        }</span>
+
+        <span class="cov8" title="1">if len(pcm) == 0 </span><span class="cov0" title="0">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+        <span class="cov8" title="1">if ctx == nil </span><span class="cov0" title="0">{
+                ctx = context.Background()
+        }</span>
+        <span class="cov8" title="1">s.mu.RLock()
+
+        interval := s.writeInterval
+
+        s.mu.RUnlock()
+
+        if interval &lt;= 0 </span><span class="cov8" title="1">{
+                interval = 20 * time.Millisecond
+        }</span>
+
+        <span class="cov8" title="1">sampleRate := s.codec.ClockRate
+
+        if sampleRate &lt;= 0 </span><span class="cov0" title="0">{
+                sampleRate = 8000
+        }</span>
+
+        <span class="cov8" title="1">frameSize := sampleRate / 50
+
+        if frameSize &lt;= 0 </span><span class="cov0" title="0">{
+                frameSize = 160
+        }</span>
+
+        <span class="cov8" title="1">ticker := time.NewTicker(interval)
+
+        defer ticker.Stop()
+
+        first := true
+
+        for offset := 0; offset &lt; len(pcm); offset += frameSize </span><span class="cov8" title="1">{
+
+                end := offset + frameSize
+
+                if end &gt; len(pcm) </span><span class="cov8" title="1">{
+                        end = len(pcm)
+                }</span>
+
+                <span class="cov8" title="1">frame := pcm[offset:end]
+
+                if !first </span><span class="cov8" title="1">{
+                        select </span>{
+                        case &lt;-ctx.Done():<span class="cov8" title="1">
+                                return ctx.Err()</span>
+
+                        case &lt;-ticker.C:<span class="cov8" title="1"></span>
+                        }
+                }
+
+                <span class="cov8" title="1">first = false
+
+                if err := s.WritePCM(
+                        encoder,
+                        frame,
+                ); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+        }
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// RTPSession
+// RTPSequenceTracker
+func NewRTPSequenceTracker() *RTPSequenceTracker <span class="cov8" title="1">{
+        return &amp;RTPSequenceTracker{}
+}</span>
+func (t *RTPSequenceTracker) Update(seq uint16) <span class="cov8" title="1">{
+        t.mu.Lock()
+        defer t.mu.Unlock()
+
+        if !t.started </span><span class="cov8" title="1">{
+                t.started = true
+                t.last = seq
+                t.received++
+                return
+        }</span>
+
+        // Same sequence = duplicate.
+        <span class="cov8" title="1">if seq == t.last </span><span class="cov8" title="1">{
+                t.duplicate++
+                return
+        }</span>
+
+        <span class="cov8" title="1">diff := uint16(seq - t.last)
+
+        // Forward packet.
+        //
+        // This also correctly handles:
+        //
+        // 65534 -&gt; 65535
+        // 65535 -&gt; 0
+        // 0 -&gt; 1
+        //
+        if diff &lt; 0x8000 </span><span class="cov8" title="1">{
+                if diff &gt; 1 </span><span class="cov8" title="1">{
+                        t.lost += uint64(diff - 1)
+                }</span>
+
+                <span class="cov8" title="1">t.last = seq
+                t.received++
+                return</span>
+        }
+
+        // Packet arrived behind current sequence.
+        <span class="cov8" title="1">t.outOfOrder++</span>
+}
+func (t *RTPSequenceTracker) Stats() RTPStats <span class="cov8" title="1">{
+        t.mu.Lock()
+        defer t.mu.Unlock()
+
+        return RTPStats{
+                ReceivedPackets: t.received,
+                LostPackets:     t.lost,
+                Duplicates:      t.duplicate,
+                OutOfOrder:      t.outOfOrder,
+
+                LastSequence: t.last,
+                HasSequence:  t.started,
+        }
+}</span>
+func (t *RTPSequenceTracker) Reset() <span class="cov0" title="0">{
+        t.mu.Lock()
+        defer t.mu.Unlock()
+        *t = RTPSequenceTracker{}
+}</span>
+
+// RTPSequenceTracker
+// RTPJitterBuffer
+func NewRTPJitterBuffer(
+        maxPackets int,
+        maxWait time.Duration,
+) *RTPJitterBuffer <span class="cov8" title="1">{
+
+        if maxPackets &lt;= 0 </span><span class="cov0" title="0">{
+                maxPackets = 50
+        }</span>
+
+        <span class="cov8" title="1">if maxWait &lt;= 0 </span><span class="cov0" title="0">{
+                maxWait = 30 * time.Millisecond
+        }</span>
+
+        <span class="cov8" title="1">return &amp;RTPJitterBuffer{
+                packets:    make(map[uint16]jitterPacket),
+                maxPackets: maxPackets,
+                maxWait:    maxWait,
+                notify:     make(chan struct{}, 1),
+        }</span>
+}
+func (b *RTPJitterBuffer) Push(packet *RTPPacket) error <span class="cov8" title="1">{
+        if packet == nil </span><span class="cov0" title="0">{
+                return errInvalidRTPPacket
+        }</span>
+        <span class="cov8" title="1">b.mu.Lock()
+        defer b.mu.Unlock()
+        seq := packet.Header.SequenceNumber
+        if _, exists := b.packets[seq]; exists </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        // Before the buffer has produced anything, allow
+        // reordering around the initial sequence number.
+        <span class="cov8" title="1">if !b.started </span><span class="cov8" title="1">{
+                b.started = true
+                b.next = seq
+        }</span>
+        // Once output has started, packets behind next are stale.
+        <span class="cov8" title="1">if b.advanced &amp;&amp; seqLess(seq, b.next) </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">b.packets[seq] = jitterPacket{
+                packet:     packet,
+                receivedAt: time.Now(),
+        }
+        select </span>{
+        case b.notify &lt;- struct{}{}:<span class="cov8" title="1"></span>
+        default:<span class="cov8" title="1"></span>
+        }
+        // Before output starts, an earlier packet becomes
+        // the new starting point.
+        <span class="cov8" title="1">if !b.advanced &amp;&amp; seqLess(seq, b.next) </span><span class="cov8" title="1">{
+                b.next = seq
+        }</span>
+
+        <span class="cov8" title="1">if len(b.packets) &gt; b.maxPackets </span><span class="cov8" title="1">{
+                b.dropOldestLocked()
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+func (b *RTPJitterBuffer) Pop() (*RTPPacket, bool) <span class="cov8" title="1">{
+        b.mu.Lock()
+        defer b.mu.Unlock()
+
+        if !b.started </span><span class="cov8" title="1">{
+                return nil, false
+        }</span>
+
+        // Expected packet is available.
+        <span class="cov8" title="1">if entry, ok := b.packets[b.next]; ok </span><span class="cov8" title="1">{
+                delete(b.packets, b.next)
+                b.next++
+                b.advanced = true
+
+                return entry.packet, true
+        }</span>
+
+        // No packet after the expected sequence.
+        <span class="cov8" title="1">if len(b.packets) == 0 </span><span class="cov8" title="1">{
+                return nil, false
+        }</span>
+
+        // Something later exists. Check whether the missing
+        // packet has waited long enough.
+        <span class="cov8" title="1">var oldestWait time.Duration
+
+        for _, entry := range b.packets </span><span class="cov8" title="1">{
+                wait := time.Since(entry.receivedAt)
+
+                if wait &gt; oldestWait </span><span class="cov8" title="1">{
+                        oldestWait = wait
+                }</span>
+        }
+
+        <span class="cov8" title="1">if oldestWait &lt; b.maxWait </span><span class="cov8" title="1">{
+                return nil, false
+        }</span>
+
+        // Expected packet is considered lost.
+        <span class="cov8" title="1">b.next++
+        b.advanced = true
+
+        return nil, true</span>
+}
+func (b *RTPJitterBuffer) dropOldestLocked() <span class="cov8" title="1">{
+        if len(b.packets) == 0 </span><span class="cov0" title="0">{
+                return
+        }</span>
+        // The oldest packet is the one closest to next
+        // in forward RTP sequence space.
+        <span class="cov8" title="1">oldest := b.next
+        found := false
+        var oldestDistance uint16
+        for seq := range b.packets </span><span class="cov8" title="1">{
+                distance := seqDistance(b.next, seq)
+                if !found || distance &lt; oldestDistance </span><span class="cov8" title="1">{
+                        oldest = seq
+                        oldestDistance = distance
+                        found = true
+                }</span>
+        }
+        <span class="cov8" title="1">if !found </span><span class="cov0" title="0">{
+                return
+        }</span>
+        <span class="cov8" title="1">delete(b.packets, oldest)
+        // If we dropped the packet we were waiting for,
+        // advance next so Pop() can continue.
+        if oldest == b.next </span><span class="cov8" title="1">{
+                b.next++
+        }</span>
+}
+func (b *RTPJitterBuffer) WaitForChange(timeout time.Duration) <span class="cov8" title="1">{
+        if timeout &lt;= 0 </span><span class="cov0" title="0">{
+                timeout = b.maxWait
+        }</span>
+        <span class="cov8" title="1">timer := time.NewTimer(timeout)
+        defer timer.Stop()
+        select </span>{
+        case &lt;-b.notify:<span class="cov8" title="1"></span>
+        case &lt;-timer.C:<span class="cov8" title="1"></span>
+        }
+}
+func (b *RTPJitterBuffer) HasPackets() bool <span class="cov8" title="1">{
+        b.mu.Lock()
+        defer b.mu.Unlock()
+        return len(b.packets) &gt; 0
+}</span>
+
+// RTPJitterBuffer
+// FakeSTT
+func NewFakeSTT() *FakeSTT <span class="cov8" title="1">{
+        return &amp;FakeSTT{}
+}</span>
+func (f *FakeSTT) Transcribe(
+        ctx context.Context,
+        segment neurocall.AudioSegment,
+) (neurocall.Transcript, error) <span class="cov8" title="1">{
+        select </span>{
+        case &lt;-ctx.Done():<span class="cov8" title="1">
+                return neurocall.Transcript{}, ctx.Err()</span>
+        default:<span class="cov8" title="1"></span>
+        }
+
+        <span class="cov8" title="1">if len(segment.Data) == 0 </span><span class="cov0" title="0">{
+                return neurocall.Transcript{}, neurocall.ErrInvalidAudio
+        }</span>
+
+        <span class="cov8" title="1">return neurocall.Transcript{
+                Text:       "hello from fake stt",
+                Confidence: 0.99,
+                Language:   "en",
+        }, nil</span>
+}
+
+// FakeSTT
+// AudioReceiveConfig
+func DefaultAudioReceiveConfig() AudioReceiveConfig <span class="cov0" title="0">{
+        return AudioReceiveConfig{
+                SampleRate: 8000,
+                Channels:   1,
+                FrameSize:  160,
+        }
+}</span>
+
+// AudioReceiveConfig
+// AudioProcessor
+func NewAudioProcessor(
+        vad neurocall.VAD,
+        segmenter neurocall.SpeechSegmenter,
+        worker *STTWorker,
+        bus *EventBus,
+) (*AudioProcessor, error) <span class="cov8" title="1">{
+
+        if vad == nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("VAD is nil")
+        }</span>
+
+        <span class="cov8" title="1">if segmenter == nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("speech segmenter is nil")
+        }</span>
+
+        <span class="cov8" title="1">if worker == nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("STT worker is nil")
+        }</span>
+
+        <span class="cov8" title="1">if bus == nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("event bus is nil")
+        }</span>
+
+        <span class="cov8" title="1">ctx, cancel := context.WithCancel(context.Background())
+
+        return &amp;AudioProcessor{
+                vad:       vad,
+                segmenter: segmenter,
+                worker:    worker,
+                bus:       bus,
+                ctx:       ctx,
+                cancel:    cancel,
+        }, nil</span>
+}
+func (p *AudioProcessor) Start() error <span class="cov8" title="1">{
+        if p == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">p.mu.Lock()
+
+        if p.closed </span><span class="cov0" title="0">{
+                p.mu.Unlock()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">if p.running </span><span class="cov8" title="1">{
+                p.mu.Unlock()
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">p.running = true
+
+        worker := p.worker
+
+        p.mu.Unlock()
+
+        if worker != nil </span><span class="cov8" title="1">{
+                if err := worker.Start(); err != nil </span><span class="cov0" title="0">{
+                        p.mu.Lock()
+                        p.running = false
+                        p.mu.Unlock()
+
+                        return err
+                }</span>
+        }
+
+        <span class="cov8" title="1">return nil</span>
+}
+func (p *AudioProcessor) Stop() error <span class="cov8" title="1">{
+        if p == nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">p.mu.Lock()
+
+        if p.closed </span><span class="cov0" title="0">{
+                p.mu.Unlock()
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">p.closed = true
+        p.running = false
+
+        cancel := p.cancel
+        worker := p.worker
+
+        p.mu.Unlock()
+
+        if cancel != nil </span><span class="cov8" title="1">{
+                cancel()
+        }</span>
+
+        <span class="cov8" title="1">if worker != nil </span><span class="cov8" title="1">{
+                worker.Stop()
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+func (p *AudioProcessor) Running() bool <span class="cov8" title="1">{
+        if p == nil </span><span class="cov0" title="0">{
+                return false
+        }</span>
+
+        <span class="cov8" title="1">p.mu.RLock()
+        defer p.mu.RUnlock()
+
+        return p.running &amp;&amp; !p.closed</span>
+}
+func (p *AudioProcessor) Closed() bool <span class="cov8" title="1">{
+        if p == nil </span><span class="cov0" title="0">{
+                return true
+        }</span>
+
+        <span class="cov8" title="1">p.mu.RLock()
+        defer p.mu.RUnlock()
+
+        return p.closed</span>
+}
+func (p *AudioProcessor) Context() context.Context <span class="cov8" title="1">{
+        if p == nil </span><span class="cov0" title="0">{
+                return context.Background()
+        }</span>
+
+        <span class="cov8" title="1">p.mu.RLock()
+        defer p.mu.RUnlock()
+
+        return p.ctx</span>
+}
+func (p *AudioProcessor) SetVAD(
+        vad neurocall.VAD,
+) error <span class="cov0" title="0">{
+
+        if vad == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("VAD is nil")
+        }</span>
+
+        <span class="cov0" title="0">p.mu.Lock()
+        defer p.mu.Unlock()
+
+        if p.closed </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov0" title="0">p.vad = vad
+
+        return nil</span>
+}
+func (p *AudioProcessor) SetSegmenter(
+        segmenter neurocall.SpeechSegmenter,
+) error <span class="cov0" title="0">{
+
+        if segmenter == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("speech segmenter is nil")
+        }</span>
+
+        <span class="cov0" title="0">p.mu.Lock()
+        defer p.mu.Unlock()
+
+        if p.closed </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov0" title="0">p.segmenter = segmenter
+
+        return nil</span>
+}
+func (p *AudioProcessor) SetWorker(
+        worker *STTWorker,
+) error <span class="cov0" title="0">{
+
+        if worker == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("STT worker is nil")
+        }</span>
+
+        <span class="cov0" title="0">p.mu.Lock()
+        defer p.mu.Unlock()
+
+        if p.closed </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov0" title="0">p.worker = worker
+
+        return nil</span>
+}
+func (p *AudioProcessor) VAD() neurocall.VAD <span class="cov0" title="0">{
+        p.mu.RLock()
+        defer p.mu.RUnlock()
+
+        return p.vad
+}</span>
+func (p *AudioProcessor) Segmenter() neurocall.SpeechSegmenter <span class="cov0" title="0">{
+        p.mu.RLock()
+        defer p.mu.RUnlock()
+
+        return p.segmenter
+}</span>
+func (p *AudioProcessor) Worker() *STTWorker <span class="cov0" title="0">{
+        p.mu.RLock()
+        defer p.mu.RUnlock()
+
+        return p.worker
+}</span>
+func (p *AudioProcessor) ProcessFrame(
+        frame neurocall.AudioFrame,
+) error <span class="cov8" title="1">{
+
+        if p == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">if len(frame.Data) == 0 </span><span class="cov8" title="1">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+
+        <span class="cov8" title="1">if frame.SampleRate &lt;= 0 </span><span class="cov8" title="1">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+
+        <span class="cov8" title="1">if frame.Channels &lt;= 0 </span><span class="cov8" title="1">{
+                return neurocall.ErrInvalidAudio
+        }</span>
+
+        <span class="cov8" title="1">p.mu.RLock()
+
+        if p.closed || !p.running </span><span class="cov8" title="1">{
+                p.mu.RUnlock()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">ctx := p.ctx
+        vad := p.vad
+        segmenter := p.segmenter
+        worker := p.worker
+
+        p.mu.RUnlock()
+
+        if vad == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("VAD is not configured")
+        }</span>
+
+        <span class="cov8" title="1">if segmenter == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("speech segmenter is not configured")
+        }</span>
+
+        <span class="cov8" title="1">if worker == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("STT worker is not configured")
+        }</span>
+
+        <span class="cov8" title="1">speech, err := vad.Process(ctx, frame)
+        if err != nil </span><span class="cov0" title="0">{
+                p.publishVADError(err)
+                return err
+        }</span>
+
+        <span class="cov8" title="1">if !speech </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">segments, err := segmenter.Process(ctx, frame)
+        if err != nil </span><span class="cov0" title="0">{
+                p.publishSegmenterError(err)
+                return err
+        }</span>
+
+        <span class="cov8" title="1">for _, segment := range segments </span><span class="cov8" title="1">{
+                if len(segment.Data) == 0 </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                <span class="cov8" title="1">if err := worker.Push(segment); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+
+                <span class="cov8" title="1">p.publishSegment(segment)</span>
+        }
+
+        <span class="cov8" title="1">return nil</span>
+}
+func (p *AudioProcessor) Flush() error <span class="cov8" title="1">{
+        if p == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">p.mu.RLock()
+
+        if p.closed </span><span class="cov0" title="0">{
+                p.mu.RUnlock()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">ctx := p.ctx
+        segmenter := p.segmenter
+        worker := p.worker
+
+        p.mu.RUnlock()
+
+        if segmenter == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("speech segmenter is not configured")
+        }</span>
+
+        <span class="cov8" title="1">if worker == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("STT worker is not configured")
+        }</span>
+
+        <span class="cov8" title="1">segments, err := segmenter.Flush(ctx)
+        if err != nil </span><span class="cov0" title="0">{
+                p.publishSegmenterError(err)
+                return err
+        }</span>
+
+        <span class="cov8" title="1">for _, segment := range segments </span><span class="cov8" title="1">{
+                if len(segment.Data) == 0 </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                <span class="cov8" title="1">if err := worker.Push(segment); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+
+                <span class="cov8" title="1">p.publishSegment(segment)</span>
+        }
+
+        <span class="cov8" title="1">return nil</span>
+}
+func (p *AudioProcessor) ResetSegmenter() error <span class="cov8" title="1">{
+        if p == nil </span><span class="cov0" title="0">{
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">p.mu.RLock()
+
+        if p.closed </span><span class="cov0" title="0">{
+                p.mu.RUnlock()
+                return neurocall.ErrCallClosed
+        }</span>
+
+        <span class="cov8" title="1">segmenter := p.segmenter
+
+        p.mu.RUnlock()
+
+        if segmenter == nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("speech segmenter is not configured")
+        }</span>
+
+        <span class="cov8" title="1">segmenter.Reset()
+
+        return nil</span>
+}
+func (p *AudioProcessor) publishSegment(
+        segment neurocall.AudioSegment,
+) <span class="cov8" title="1">{
+        if p == nil || p.bus == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+        <span class="cov8" title="1">p.bus.Publish(Event{
+                Name: EventAudioSegment,
+                Data: segment,
+        })</span>
+}
+func (p *AudioProcessor) publishVADError(
+        err error,
+) <span class="cov0" title="0">{
+        if p == nil || p.bus == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+        <span class="cov0" title="0">p.bus.Publish(Event{
+                Name: EventAudioProcessorError,
+                Data: err,
+        })</span>
+}
+func (p *AudioProcessor) publishSegmenterError(
+        err error,
+) <span class="cov0" title="0">{
+        if p == nil || p.bus == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+
+        <span class="cov0" title="0">p.bus.Publish(Event{
+                Name: EventAudioProcessorError,
+                Data: err,
+        })</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package core
+
+import (
+        "bytes"
+        "crypto/rand"
+        "encoding/binary"
+        "fmt"
+        "net"
+        "strconv"
+        "strings"
+        "time"
+
+        "github.com/daniyelford/NeuroCallAi/pkg/neurocall"
+        "github.com/pion/sdp/v3"
+)
+
+func PCM16FromBytes(
+        data []byte,
+) []int16 <span class="cov0" title="0">{
+
+        if len(data)%2 != 0 </span><span class="cov0" title="0">{
+                data = data[:len(data)-1]
+        }</span>
+
+        <span class="cov0" title="0">out := make(
+                []int16,
+                len(data)/2,
+        )
+
+        for i := range out </span><span class="cov0" title="0">{
+                out[i] =
+                        int16(data[i*2]) |
+                                int16(data[i*2+1])&lt;&lt;8
+        }</span>
+
+        <span class="cov0" title="0">return out</span>
+}
+func PCM16ToBytes(
+        pcm []int16,
+) []byte <span class="cov8" title="1">{
+        out := make(
+                []byte,
+                len(pcm)*2,
+        )
+        for i, sample := range pcm </span><span class="cov8" title="1">{
+                out[i*2] = byte(sample)
+                out[i*2+1] = byte(sample &gt;&gt; 8)
+        }</span>
+        <span class="cov8" title="1">return out</span>
+}
+func BytesToPCM16(
+        data []byte,
+) []int16 <span class="cov8" title="1">{
+
+        if len(data)%2 != 0 </span><span class="cov0" title="0">{
+                data = data[:len(data)-1]
+        }</span>
+
+        <span class="cov8" title="1">out := make(
+                []int16,
+                len(data)/2,
+        )
+
+        for i := range out </span><span class="cov8" title="1">{
+                out[i] =
+                        int16(data[i*2]) |
+                                int16(data[i*2+1])&lt;&lt;8
+        }</span>
+
+        <span class="cov8" title="1">return out</span>
+}
+func ParseSDP(data []byte) (RemoteMedia, error) <span class="cov8" title="1">{
+        var desc sdp.SessionDescription
+
+        if err := desc.Unmarshal(data); err != nil </span><span class="cov8" title="1">{
+                return RemoteMedia{}, err
+        }</span>
+
+        <span class="cov8" title="1">var sessionIP net.IP
+
+        if desc.ConnectionInformation != nil &amp;&amp;
+                desc.ConnectionInformation.Address != nil </span><span class="cov8" title="1">{
+                sessionIP = net.ParseIP(
+                        desc.ConnectionInformation.Address.Address,
+                )
+        }</span>
+
+        <span class="cov8" title="1">for _, media := range desc.MediaDescriptions </span><span class="cov8" title="1">{
+                if media.MediaName.Media != "audio" </span><span class="cov8" title="1">{
+                        continue</span>
+                }
+
+                <span class="cov8" title="1">port := int(media.MediaName.Port.Value)
+                if port &lt;= 0 </span><span class="cov0" title="0">{
+                        return RemoteMedia{}, fmt.Errorf(
+                                "invalid audio port: %d",
+                                port,
+                        )
+                }</span>
+
+                <span class="cov8" title="1">ip := sessionIP
+
+                // Media-level c= takes precedence over session-level c=.
+                if media.ConnectionInformation != nil &amp;&amp;
+                        media.ConnectionInformation.Address != nil </span><span class="cov0" title="0">{
+
+                        mediaIP := net.ParseIP(
+                                media.ConnectionInformation.Address.Address,
+                        )
+
+                        if mediaIP != nil </span><span class="cov0" title="0">{
+                                ip = mediaIP
+                        }</span>
+                }
+
+                <span class="cov8" title="1">if ip == nil </span><span class="cov0" title="0">{
+                        return RemoteMedia{}, fmt.Errorf(
+                                "audio connection IP is missing",
+                        )
+                }</span>
+
+                <span class="cov8" title="1">codecs := parseCodecs(media)
+
+                if len(codecs) == 0 </span><span class="cov8" title="1">{
+                        return RemoteMedia{}, errNoAudioCodec
+                }</span>
+
+                <span class="cov8" title="1">return RemoteMedia{
+                        IP:     ip,
+                        Port:   port,
+                        Codecs: codecs,
+                }, nil</span>
+        }
+
+        <span class="cov8" title="1">return RemoteMedia{}, errNoAudioMedia</span>
+}
+func parseCodecs(
+        media *sdp.MediaDescription,
+) []neurocall.Codec <span class="cov8" title="1">{
+        var result []neurocall.Codec
+
+        for _, format := range media.MediaName.Formats </span><span class="cov8" title="1">{
+                switch format </span>{
+                case "0":<span class="cov8" title="1">
+                        result = append(result, neurocall.Codec{
+                                Name:        "PCMU",
+                                PayloadType: 0,
+                                ClockRate:   8000,
+                                Channels:    1,
+                        })</span>
+
+                case "8":<span class="cov8" title="1">
+                        result = append(result, neurocall.Codec{
+                                Name:        "PCMA",
+                                PayloadType: 8,
+                                ClockRate:   8000,
+                                Channels:    1,
+                        })</span>
+                }
+        }
+
+        <span class="cov8" title="1">return result</span>
+}
+func ParseSIPMessage(data []byte) (*SIPMessage, error) <span class="cov8" title="1">{
+        parts := bytes.SplitN(
+                data,
+                []byte("\r\n\r\n"),
+                2,
+        )
+
+        if len(parts) == 0 </span><span class="cov0" title="0">{
+                return nil, errInvalidSIPMessage
+        }</span>
+
+        <span class="cov8" title="1">lines := strings.Split(
+                string(parts[0]),
+                "\r\n",
+        )
+        if len(lines) == 0 </span><span class="cov0" title="0">{
+                return nil, errInvalidSIPMessage
+        }</span>
+        <span class="cov8" title="1">if strings.TrimSpace(lines[0]) == "" </span><span class="cov8" title="1">{
+                return nil, errInvalidSIPMessage
+        }</span>
+        <span class="cov8" title="1">msg := &amp;SIPMessage{
+                StartLine: lines[0],
+                Headers:   make(map[string]string),
+        }
+
+        for _, line := range lines[1:] </span><span class="cov8" title="1">{
+                idx := strings.IndexByte(line, ':')
+                if idx &lt;= 0 </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                <span class="cov8" title="1">key := strings.ToLower(
+                        strings.TrimSpace(line[:idx]),
+                )
+
+                value := strings.TrimSpace(
+                        line[idx+1:],
+                )
+
+                msg.Headers[key] = value</span>
+        }
+
+        <span class="cov8" title="1">if len(parts) == 2 </span><span class="cov8" title="1">{
+                msg.Body = parts[1]
+        }</span>
+
+        <span class="cov8" title="1">return msg, nil</span>
+}
+func BuildSIPResponse(
+        req *SIPMessage,
+        code int,
+        reason string,
+        body []byte,
+) []byte <span class="cov8" title="1">{
+        var b strings.Builder
+        fmt.Fprintf(
+                &amp;b,
+                "SIP/2.0 %d %s\r\n",
+                code,
+                reason,
+        )
+        copySIPHeader(&amp;b, req, "Via")
+        copySIPHeader(&amp;b, req, "From")
+        copySIPHeader(&amp;b, req, "To")
+        copySIPHeader(&amp;b, req, "Call-ID")
+        copySIPHeader(&amp;b, req, "CSeq")
+        if len(body) &gt; 0 </span><span class="cov8" title="1">{
+                b.WriteString(
+                        "Content-Type: application/sdp\r\n",
+                )
+        }</span>
+        <span class="cov8" title="1">b.WriteString("Content-Length: ")
+        b.WriteString(strconv.Itoa(len(body)))
+        b.WriteString("\r\n")
+        b.WriteString("\r\n")
+        b.Write(body)
+        return []byte(b.String())</span>
+}
+func copySIPHeader(
+        b *strings.Builder,
+        msg *SIPMessage,
+        name string,
+) <span class="cov8" title="1">{
+        value := msg.Headers[strings.ToLower(name)]
+        if value == "" </span><span class="cov0" title="0">{
+                return
+        }</span>
+        <span class="cov8" title="1">fmt.Fprintf(
+                b,
+                "%s: %s\r\n",
+                name,
+                value,
+        )</span>
+}
+func DefaultConfig() Config <span class="cov0" title="0">{
+        return Config{
+                SIP: SIPConfig{
+                        ListenIP:   "0.0.0.0",
+                        SIPPort:    DefaultSIPPort,
+                        RTPMinPort: DefaultRTPMinPort,
+                        RTPMaxPort: DefaultRTPMaxPort,
+                },
+
+                Audio: AudioConfig{
+                        SampleRate: DefaultAudioSampleRate,
+                        Channels:   DefaultAudioChannels,
+                        FrameSize:  DefaultAudioFrameSize,
+                        BufferSize: 32,
+                },
+
+                RTPMinPort: DefaultRTPMinPort,
+                RTPMaxPort: DefaultRTPMaxPort,
+        }
+}</span>
+func GetService[T any](
+        c *Container,
+        name string,
+) (T, bool) <span class="cov0" title="0">{
+        var zero T
+
+        value, ok := c.Get(name)
+
+        if !ok </span><span class="cov0" title="0">{
+                return zero, false
+        }</span>
+
+        <span class="cov0" title="0">result, ok := value.(T)
+
+        return result, ok</span>
+}
+func BuildSDPAnswer(
+        call *SIPCall,
+        config SIPConfig,
+) []byte <span class="cov8" title="1">{
+        // ip := s.MediaIP()
+        ip := config.ExternalIP
+        if ip == "" </span><span class="cov8" title="1">{
+                ip = config.ListenIP
+        }</span>
+        <span class="cov8" title="1">var b strings.Builder
+        fmt.Fprintf(
+                &amp;b,
+                "v=0\r\n",
+        )
+        fmt.Fprintf(
+                &amp;b,
+                "o=neurocall 1 1 IN IP4 %s\r\n",
+                ip,
+        )
+        fmt.Fprintf(
+                &amp;b,
+                "s=NeuroCall\r\n",
+        )
+        fmt.Fprintf(
+                &amp;b,
+                "c=IN IP4 %s\r\n",
+                ip,
+        )
+        fmt.Fprintf(
+                &amp;b,
+                "t=0 0\r\n",
+        )
+        fmt.Fprintf(
+                &amp;b,
+                "m=audio %d RTP/AVP %d\r\n",
+                call.LocalRTPPort,
+                call.Codec.PayloadType,
+        )
+        fmt.Fprintf(
+                &amp;b,
+                "a=rtpmap:%d %s/%d/%d\r\n",
+                call.Codec.PayloadType,
+                call.Codec.Name,
+                call.Codec.ClockRate,
+                call.Codec.Channels,
+        )
+        return []byte(b.String())</span>
+}
+func linearToMuLaw(sample int16) byte <span class="cov8" title="1">{
+        const (
+                bias = 132
+        )
+
+        sign := byte(0)
+
+        if sample &lt; 0 </span><span class="cov8" title="1">{
+                sign = 0x80
+
+                if sample == -32768 </span><span class="cov0" title="0">{
+                        sample = 32767
+                }</span> else<span class="cov8" title="1"> {
+                        sample = -sample
+                }</span>
+        }
+
+        <span class="cov8" title="1">value := int(sample) + bias
+
+        exponent := 7
+
+        for exponent &gt; 0 </span><span class="cov8" title="1">{
+                if value &gt;= (1 &lt;&lt; (exponent + 3)) </span><span class="cov8" title="1">{
+                        break</span>
+                }
+
+                <span class="cov8" title="1">exponent--</span>
+        }
+
+        <span class="cov8" title="1">mantissa :=
+                (value &gt;&gt; (exponent + 3)) &amp; 0x0f
+
+        return ^(sign | byte(exponent&lt;&lt;4) | byte(mantissa))</span>
+}
+func muLawToLinear(value byte) int16 <span class="cov8" title="1">{
+        value = ^value
+
+        sign := value &amp; 0x80
+        exponent := (value &gt;&gt; 4) &amp; 0x07
+        mantissa := value &amp; 0x0f
+
+        sample :=
+                ((int(mantissa) &lt;&lt; 3) + 132) &lt;&lt;
+                        exponent
+
+        sample -= 132
+
+        if sign != 0 </span><span class="cov8" title="1">{
+                return int16(-sample)
+        }</span>
+
+        <span class="cov8" title="1">return int16(sample)</span>
+}
+func linearToALaw(sample int16) byte <span class="cov8" title="1">{
+        sign := byte(0)
+
+        if sample &lt; 0 </span><span class="cov8" title="1">{
+                sign = 0x80
+
+                if sample == -32768 </span><span class="cov0" title="0">{
+                        sample = 32767
+                }</span> else<span class="cov8" title="1"> {
+                        sample = -sample
+                }</span>
+        }
+
+        <span class="cov8" title="1">value := int(sample)
+
+        if value &gt; 32635 </span><span class="cov0" title="0">{
+                value = 32635
+        }</span>
+
+        <span class="cov8" title="1">exponent := 7
+
+        for exponent &gt; 0 </span><span class="cov8" title="1">{
+                if value &gt;= (1 &lt;&lt; (exponent + 3)) </span><span class="cov8" title="1">{
+                        break</span>
+                }
+
+                <span class="cov8" title="1">exponent--</span>
+        }
+
+        <span class="cov8" title="1">var mantissa int
+
+        if exponent == 0 </span><span class="cov8" title="1">{
+                mantissa = value &gt;&gt; 4
+        }</span> else<span class="cov8" title="1"> {
+                mantissa =
+                        (value &gt;&gt; (exponent + 3)) &amp; 0x0f
+        }</span>
+
+        <span class="cov8" title="1">result :=
+                sign |
+                        byte(exponent&lt;&lt;4) |
+                        byte(mantissa)
+
+        return result ^ 0x55</span>
+}
+func aLawToLinear(value byte) int16 <span class="cov8" title="1">{
+        value ^= 0x55
+
+        sign := value &amp; 0x80
+        exponent := (value &gt;&gt; 4) &amp; 0x07
+        mantissa := value &amp; 0x0f
+
+        var sample int
+
+        if exponent == 0 </span><span class="cov8" title="1">{
+                sample =
+                        (int(mantissa) &lt;&lt; 4) +
+                                8
+        }</span> else<span class="cov8" title="1"> {
+                sample =
+                        ((int(mantissa) &lt;&lt; 3) + 132) &lt;&lt;
+                                (exponent - 1)
+        }</span>
+
+        <span class="cov8" title="1">if sign != 0 </span><span class="cov8" title="1">{
+                return int16(-sample)
+        }</span>
+
+        <span class="cov8" title="1">return int16(sample)</span>
+}
+func EncoderFor(
+        codec neurocall.Codec,
+) (neurocall.Encoder, error) <span class="cov8" title="1">{
+
+        switch codec.Name </span>{
+
+        case "PCMU":<span class="cov8" title="1">
+                return PCMU{}, nil</span>
+
+        case "PCMA":<span class="cov0" title="0">
+                return PCMA{}, nil</span>
+
+        default:<span class="cov0" title="0">
+                return nil, fmt.Errorf(
+                        "unsupported encoder codec: %s",
+                        codec.Name,
+                )</span>
+        }
+}
+func DecoderFor(
+        codec neurocall.Codec,
+) (neurocall.Decoder, error) <span class="cov8" title="1">{
+
+        switch codec.Name </span>{
+
+        case "PCMU":<span class="cov8" title="1">
+                return PCMU{}, nil</span>
+
+        case "PCMA":<span class="cov0" title="0">
+                return PCMA{}, nil</span>
+
+        default:<span class="cov0" title="0">
+                return nil, fmt.Errorf(
+                        "unsupported decoder codec: %s",
+                        codec.Name,
+                )</span>
+        }
+}
+func randomUint32() uint32 <span class="cov8" title="1">{
+        var b [4]byte
+        if _, err := rand.Read(b[:]); err != nil </span><span class="cov0" title="0">{
+                return uint32(time.Now().UnixNano())
+        }</span>
+        <span class="cov8" title="1">return binary.BigEndian.Uint32(b[:])</span>
+}
+func concealPCM(
+        codec neurocall.Codec,
+        frameSamples int,
+) []int16 <span class="cov0" title="0">{
+
+        if frameSamples &lt;= 0 </span><span class="cov0" title="0">{
+                frameSamples = 160
+        }</span>
+
+        <span class="cov0" title="0">return make([]int16, frameSamples)</span>
+}
+func buildAudioFrame(
+        timestamp uint32,
+        cfg AudioReceiveConfig,
+) neurocall.AudioFrame <span class="cov0" title="0">{
+        return neurocall.AudioFrame{
+                Timestamp:  timestamp,
+                SampleRate: cfg.SampleRate,
+                Channels:   cfg.Channels,
+        }
+}</span>
+func seqLess(a, b uint16) bool <span class="cov8" title="1">{
+        return a != b &amp;&amp;
+                uint16(b-a) &lt; 0x8000
+}</span>
+func seqDistance(from, to uint16) uint16 <span class="cov8" title="1">{
+        return uint16(to - from)
+}</span>
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
