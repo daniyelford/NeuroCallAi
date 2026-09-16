@@ -52,19 +52,20 @@ type AIConfig struct {
 	TTS neurocall.TTS
 }
 type SIPServer struct {
-	mu           sync.RWMutex
-	conn         *net.UDPConn
-	manager      *CallManager
-	bus          *EventBus
-	codecs       *CodecRegistry
-	config       SIPConfig
-	stt          *STTEngine
-	llm          *LLMEngine
-	tts          *TTSEngine
-	conversation *ConversationEngine
-	voice        *VoiceResponseEngine
-	ctx          context.Context
-	cancel       context.CancelFunc
+	mu             sync.RWMutex
+	conn           *net.UDPConn
+	manager        *CallManager
+	bus            *EventBus
+	codecs         *CodecRegistry
+	config         SIPConfig
+	stt            *STTEngine
+	llm            *LLMEngine
+	tts            *TTSEngine
+	conversation   *ConversationEngine
+	voice          *VoiceResponseEngine
+	ctx            context.Context
+	cancel         context.CancelFunc
+	pendingInvites map[string]context.CancelFunc
 }
 type SIPDialog struct {
 	CallID    string

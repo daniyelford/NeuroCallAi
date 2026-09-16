@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 
@@ -16,23 +17,22 @@ func NewSIPServer(
 	llm neurocall.LLM,
 	tts neurocall.TTS,
 ) *SIPServer {
-
 	if manager == nil {
 		manager = NewCallManager(
 			config.RTPMinPort,
 			config.RTPMaxPort,
 		)
 	}
-
 	if codecs == nil {
 		codecs = NewCodecRegistry()
 	}
 	bus := NewEventBus()
 	server := &SIPServer{
-		manager: manager,
-		codecs:  codecs,
-		config:  config,
-		bus:     bus,
+		manager:        manager,
+		codecs:         codecs,
+		config:         config,
+		bus:            bus,
+		pendingInvites: make(map[string]context.CancelFunc),
 	}
 	manager.SetEventBus(bus)
 	if stt != nil {
@@ -129,61 +129,62 @@ func (s *SIPServer) Stop() error {
 	}
 	return nil
 }
-func (s *SIPServer) readLoop(ctx context.Context) {
 
-	buffer := make(
-		[]byte,
-		65535,
-	)
+// func (s *SIPServer) readLoop(ctx context.Context) {
 
-	for {
+// 	buffer := make(
+// 		[]byte,
+// 		65535,
+// 	)
 
-		select {
-		case <-ctx.Done():
-			return
+// 	for {
 
-		default:
-		}
+// 		select {
+// 		case <-ctx.Done():
+// 			return
 
-		s.mu.RLock()
-		conn := s.conn
-		s.mu.RUnlock()
+// 		default:
+// 		}
 
-		if conn == nil {
-			return
-		}
+// 		s.mu.RLock()
+// 		conn := s.conn
+// 		s.mu.RUnlock()
 
-		n, remote, err :=
-			conn.ReadFromUDP(buffer)
+// 		if conn == nil {
+// 			return
+// 		}
 
-		if err != nil {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				continue
-			}
-		}
+// 		n, remote, err :=
+// 			conn.ReadFromUDP(buffer)
 
-		data := append(
-			[]byte(nil),
-			buffer[:n]...,
-		)
+// 		if err != nil {
+// 			select {
+// 			case <-ctx.Done():
+// 				return
+// 			default:
+// 				continue
+// 			}
+// 		}
 
-		go func(
-			data []byte,
-			remote *net.UDPAddr,
-		) {
-			if err := s.handle(ctx, data, remote); err != nil {
-				fmt.Printf(
-					"SIP handle error from %s: %v\n",
-					remote,
-					err,
-				)
-			}
-		}(data, remote)
-	}
-}
+// 		data := append(
+// 			[]byte(nil),
+// 			buffer[:n]...,
+// 		)
+
+//			go func(
+//				data []byte,
+//				remote *net.UDPAddr,
+//			) {
+//				if err := s.handle(ctx, data, remote); err != nil {
+//					fmt.Printf(
+//						"SIP handle error from %s: %v\n",
+//						remote,
+//						err,
+//					)
+//				}
+//			}(data, remote)
+//		}
+//	}
 func (s *SIPServer) handle(ctx context.Context, data []byte, remote *net.UDPAddr) error {
 	message, err := ParseSIPMessage(data)
 	if err != nil {
@@ -210,6 +211,12 @@ func (s *SIPServer) handle(ctx context.Context, data []byte, remote *net.UDPAddr
 		)
 	case "OPTIONS":
 		return s.handleOPTIONS(
+			ctx,
+			message,
+			remote,
+		)
+	case "CANCEL":
+		return s.handleCANCEL(
 			ctx,
 			message,
 			remote,
@@ -248,7 +255,7 @@ func (s *SIPServer) sendResponse(req *SIPMessage, remote *net.UDPAddr, code int,
 
 	return err
 }
-func (s *SIPServer) handleINVITE(_ context.Context, req *SIPMessage, remote *net.UDPAddr) error {
+func (s *SIPServer) handleINVITE(ctx context.Context, req *SIPMessage, remote *net.UDPAddr) error {
 	if err := s.sendResponse(req, remote, 100, "Trying", nil); err != nil {
 		return err
 	}
@@ -267,6 +274,28 @@ func (s *SIPServer) handleINVITE(_ context.Context, req *SIPMessage, remote *net
 	if callID == "" {
 		return s.sendResponse(req, remote, 400, "Bad Request", nil)
 	}
+	inviteCtx, cancel := context.WithCancel(ctx)
+
+	s.mu.Lock()
+
+	if s.pendingInvites == nil {
+		s.pendingInvites = make(map[string]context.CancelFunc)
+	}
+
+	s.pendingInvites[callID] = cancel
+
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+
+		delete(s.pendingInvites, callID)
+
+		s.mu.Unlock()
+
+		cancel()
+	}()
+
 	var ttsPlayback *TTSPlayback
 	if s.tts != nil {
 		ttsPlayback, err = NewTTSPlayback(s.tts)
@@ -345,7 +374,12 @@ func (s *SIPServer) handleINVITE(_ context.Context, req *SIPMessage, remote *net
 			return err
 		}
 	}
+	select {
+	case <-inviteCtx.Done():
+		return nil
 
+	default:
+	}
 	// Allocate RTP
 	port, err := s.manager.ports.Allocate()
 	if err != nil {
@@ -387,12 +421,22 @@ func (s *SIPServer) handleINVITE(_ context.Context, req *SIPMessage, remote *net
 		cleanup()
 		return err
 	}
-
-	// Start RTP receive → STT
-	// call.StartReceiveLoop()
-
 	// SDP Answer
 	body := BuildSDPAnswer(call, s.config)
+	select {
+	case <-inviteCtx.Done():
+		_ = call.Hangup()
+
+		if s.voice != nil {
+			_ = s.voice.RemoveCall(callID)
+		}
+
+		_ = s.manager.Remove(callID)
+
+		return nil
+
+	default:
+	}
 	// --------------------
 	// 200 OK
 	// --------------------
@@ -471,5 +515,109 @@ func (s *SIPServer) configToAudioConfig() AudioConfig {
 		Channels:   DefaultAudioChannels,
 		FrameSize:  DefaultAudioFrameSize,
 		BufferSize: 32,
+	}
+}
+func (s *SIPServer) handleCANCEL(
+	_ context.Context,
+	req *SIPMessage,
+	remote *net.UDPAddr,
+) error {
+
+	callID := req.Headers["call-id"]
+
+	if callID == "" {
+		return s.sendResponse(
+			req,
+			remote,
+			400,
+			"Bad Request",
+			nil,
+		)
+	}
+
+	// CANCEL request itself gets 200 OK.
+	if err := s.sendResponse(
+		req,
+		remote,
+		200,
+		"OK",
+		nil,
+	); err != nil {
+		return err
+	}
+
+	// First cancel an INVITE that is still being processed.
+	s.mu.RLock()
+
+	cancel := s.pendingInvites[callID]
+
+	s.mu.RUnlock()
+
+	if cancel != nil {
+		cancel()
+	}
+
+	// The call may already have been created.
+	call, err := s.manager.Get(callID)
+
+	if err != nil {
+		if errors.Is(err, neurocall.ErrCallNotFound) {
+			return nil
+		}
+
+		return err
+	}
+
+	if call != nil {
+		_ = call.Hangup()
+	}
+
+	if s.voice != nil {
+		_ = s.voice.RemoveCall(callID)
+	}
+
+	return s.manager.Remove(callID)
+}
+func (s *SIPServer) readLoop(ctx context.Context) {
+	buffer := make([]byte, 65535)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		s.mu.RLock()
+		conn := s.conn
+		s.mu.RUnlock()
+
+		if conn == nil {
+			return
+		}
+
+		n, remote, err := conn.ReadFromUDP(buffer)
+
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				continue
+			}
+		}
+
+		data := append(
+			[]byte(nil),
+			buffer[:n]...,
+		)
+
+		if err := s.handle(ctx, data, remote); err != nil {
+			fmt.Printf(
+				"SIP handle error from %s: %v\n",
+				remote,
+				err,
+			)
+		}
 	}
 }

@@ -60,7 +60,6 @@ func (t *RTPSequenceTracker) Stats() RTPStats {
 func (t *RTPSequenceTracker) Reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-
 	t.started = false
 	t.last = 0
 	t.received = 0

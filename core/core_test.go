@@ -10784,16 +10784,19 @@ func TestIntegrationSIPInviteACK(t *testing.T) {
 	if _, err := client.WriteToUDP(ack, sipAddr); err != nil {
 		t.Fatal(err)
 	}
-
-	time.Sleep(50 * time.Millisecond)
-
 	call, err := server.manager.Get(callID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if !call.Answered() {
-		t.Fatal("expected call to be answered after ACK")
+	deadline := time.Now().Add(1 * time.Second)
+
+	for !call.Answered() {
+		if time.Now().After(deadline) {
+			t.Fatal("call was not answered after ACK")
+		}
+
+		time.Sleep(5 * time.Millisecond)
 	}
 
 	session, err := server.manager.GetSession(callID)
@@ -13761,4 +13764,1173 @@ func TestRTPSequenceTrackerResetAllowsFreshSequence(t *testing.T) {
 			stats.OutOfOrder,
 		)
 	}
+}
+func TestAudioSegmenterFlush(t *testing.T) {
+	vad := NewEnergyVAD(500)
+
+	segmenter := NewAudioSegmenter(
+		vad,
+		AudioConfig{
+			SampleRate: 8000,
+			FrameSize:  160,
+			Channels:   1,
+		},
+	)
+
+	ctx := context.Background()
+
+	frame := neurocall.AudioFrame{
+		Data:      []int16{1000, 1000, 1000, 1000},
+		Timestamp: 100,
+	}
+
+	segments, err := segmenter.Process(ctx, frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if segments != nil {
+		t.Fatal("expected no segment before flush")
+	}
+
+	segments, err = segmenter.Flush(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(segments) != 1 {
+		t.Fatalf(
+			"expected 1 segment after flush, got %d",
+			len(segments),
+		)
+	}
+
+	segment := segments[0]
+
+	if len(segment.Data) != 4 {
+		t.Fatalf(
+			"expected 4 samples, got %d",
+			len(segment.Data),
+		)
+	}
+
+	if segment.SampleRate != 8000 {
+		t.Fatalf(
+			"expected sample rate 8000, got %d",
+			segment.SampleRate,
+		)
+	}
+
+	if segment.Channels != 1 {
+		t.Fatalf(
+			"expected channels 1, got %d",
+			segment.Channels,
+		)
+	}
+
+	if !segment.Final {
+		t.Fatal("expected flushed segment to be final")
+	}
+
+	// Flush again after reset should return nothing.
+	segments, err = segmenter.Flush(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(segments) != 0 {
+		t.Fatalf(
+			"expected no segments after second flush, got %d",
+			len(segments),
+		)
+	}
+}
+func TestAudioSegmenterReset(t *testing.T) {
+	vad := NewEnergyVAD(500)
+
+	segmenter := NewAudioSegmenter(
+		vad,
+		AudioConfig{
+			SampleRate: 8000,
+			FrameSize:  160,
+			Channels:   1,
+		},
+	)
+
+	ctx := context.Background()
+
+	frame := neurocall.AudioFrame{
+		Data:      []int16{1000, 1000, 1000},
+		Timestamp: 100,
+	}
+
+	_, err := segmenter.Process(ctx, frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	segmenter.Reset()
+
+	segments, err := segmenter.Flush(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(segments) != 0 {
+		t.Fatalf(
+			"expected no segment after Reset, got %d",
+			len(segments),
+		)
+	}
+
+	// Verify that the segmenter can be reused after Reset.
+	_, err = segmenter.Process(ctx, frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	segments, err = segmenter.Flush(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(segments) != 1 {
+		t.Fatalf(
+			"expected 1 segment after reuse, got %d",
+			len(segments),
+		)
+	}
+}
+func TestAudioSegmenterFlushCancelledContext(t *testing.T) {
+	vad := NewEnergyVAD(500)
+
+	segmenter := NewAudioSegmenter(
+		vad,
+		AudioConfig{
+			SampleRate: 8000,
+			FrameSize:  160,
+			Channels:   1,
+		},
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	segments, err := segmenter.Flush(ctx)
+
+	if err == nil {
+		t.Fatal("expected context cancellation error")
+	}
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf(
+			"expected context.Canceled, got %v",
+			err,
+		)
+	}
+
+	if segments != nil {
+		t.Fatalf(
+			"expected nil segments, got %+v",
+			segments,
+		)
+	}
+}
+func TestIntegrationSIPBYECleanup(t *testing.T) {
+	manager := NewCallManager(21400, 21500)
+	codecs := NewCodecRegistry()
+
+	server := NewSIPServer(
+		SIPConfig{
+			ListenIP:   "127.0.0.1",
+			SIPPort:    0,
+			RTPMinPort: 21400,
+			RTPMaxPort: 21500,
+			ExternalIP: "127.0.0.1",
+		},
+		manager,
+		codecs,
+		&FakeSTT{},
+		nil,
+		nil,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := server.Listen(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop()
+
+	server.mu.RLock()
+	sipConn := server.conn
+	server.mu.RUnlock()
+
+	if sipConn == nil {
+		t.Fatal("SIP connection is nil")
+	}
+
+	sipAddr := sipConn.LocalAddr().(*net.UDPAddr)
+
+	client, err := net.DialUDP(
+		"udp",
+		nil,
+		sipAddr,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	callID := "integration-bye-cleanup"
+
+	sdpBody :=
+		"v=0\r\n" +
+			"o=test 1 1 IN IP4 127.0.0.1\r\n" +
+			"s=test\r\n" +
+			"c=IN IP4 127.0.0.1\r\n" +
+			"t=0 0\r\n" +
+			"m=audio 9000 RTP/AVP 0\r\n" +
+			"a=rtpmap:0 PCMU/8000/1\r\n"
+
+	invite :=
+		"INVITE sip:test@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:6000\r\n" +
+			"From: <sip:test@127.0.0.1>;tag=test\r\n" +
+			"To: <sip:test@127.0.0.1>\r\n" +
+			"Call-ID: " + callID + "\r\n" +
+			"CSeq: 1 INVITE\r\n" +
+			"Contact: <sip:test@127.0.0.1>\r\n" +
+			"Content-Type: application/sdp\r\n" +
+			"Content-Length: " +
+			strconv.Itoa(len(sdpBody)) +
+			"\r\n\r\n" +
+			sdpBody
+
+	if _, err := client.Write([]byte(invite)); err != nil {
+		t.Fatal(err)
+	}
+
+	client.SetReadDeadline(
+		time.Now().Add(2 * time.Second),
+	)
+
+	buffer := make([]byte, 65535)
+
+	// -------------------------
+	// 100 Trying
+	// -------------------------
+
+	n, _, err := client.ReadFromUDP(buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response := string(buffer[:n])
+
+	if !strings.HasPrefix(response, "SIP/2.0 100 Trying") {
+		t.Fatalf(
+			"expected 100 Trying, got:\n%s",
+			response,
+		)
+	}
+
+	// -------------------------
+	// 200 OK
+	// -------------------------
+
+	n, _, err = client.ReadFromUDP(buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response = string(buffer[:n])
+
+	if !strings.HasPrefix(response, "SIP/2.0 200 OK") {
+		t.Fatalf(
+			"expected 200 OK, got:\n%s",
+			response,
+		)
+	}
+
+	// -------------------------
+	// Verify call exists
+	// -------------------------
+
+	call, err := manager.Get(callID)
+	if err != nil {
+		t.Fatalf("call was not created: %v", err)
+	}
+
+	if call == nil {
+		t.Fatal("call is nil")
+	}
+
+	if call.LocalRTPPort == 0 {
+		t.Fatal("expected allocated RTP port")
+	}
+
+	allocatedPort := call.LocalRTPPort
+
+	t.Logf(
+		"call created with RTP port %d",
+		allocatedPort,
+	)
+
+	// -------------------------
+	// Verify session exists
+	// -------------------------
+
+	session, err := manager.GetSession(callID)
+	if err != nil {
+		t.Fatalf(
+			"session was not created: %v",
+			err,
+		)
+	}
+
+	if session == nil {
+		t.Fatal("session is nil")
+	}
+
+	// -------------------------
+	// ACK
+	// -------------------------
+
+	ack :=
+		"ACK sip:test@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:6000\r\n" +
+			"From: <sip:test@127.0.0.1>;tag=test\r\n" +
+			"To: <sip:test@127.0.0.1>\r\n" +
+			"Call-ID: " + callID + "\r\n" +
+			"CSeq: 1 ACK\r\n" +
+			"Content-Length: 0\r\n" +
+			"\r\n"
+
+	if _, err := client.Write([]byte(ack)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Give server time to process ACK.
+	time.Sleep(50 * time.Millisecond)
+
+	if !call.Answered() {
+		t.Fatal("call was not answered after ACK")
+	}
+
+	if !session.Running() {
+		t.Fatal("session is not running after ACK")
+	}
+
+	// -------------------------
+	// BYE
+	// -------------------------
+
+	bye :=
+		"BYE sip:test@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:6000\r\n" +
+			"From: <sip:test@127.0.0.1>;tag=test\r\n" +
+			"To: <sip:test@127.0.0.1>\r\n" +
+			"Call-ID: " + callID + "\r\n" +
+			"CSeq: 2 BYE\r\n" +
+			"Content-Length: 0\r\n" +
+			"\r\n"
+
+	if _, err := client.Write([]byte(bye)); err != nil {
+		t.Fatal(err)
+	}
+
+	// -------------------------
+	// BYE → 200 OK
+	// -------------------------
+
+	n, _, err = client.ReadFromUDP(buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response = string(buffer[:n])
+
+	if !strings.HasPrefix(response, "SIP/2.0 200 OK") {
+		t.Fatalf(
+			"expected 200 OK for BYE, got:\n%s",
+			response,
+		)
+	}
+
+	// -------------------------
+	// Wait for cleanup
+	// -------------------------
+
+	deadline := time.Now().Add(1 * time.Second)
+
+	for time.Now().Before(deadline) {
+		_, err := manager.Get(callID)
+
+		if errors.Is(err, neurocall.ErrCallNotFound) {
+			break
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// -------------------------
+	// Call must be removed
+	// -------------------------
+
+	_, err = manager.Get(callID)
+
+	if !errors.Is(err, neurocall.ErrCallNotFound) {
+		t.Fatalf(
+			"expected call to be removed after BYE, got err=%v",
+			err,
+		)
+	}
+
+	// -------------------------
+	// Session must be removed
+	// -------------------------
+
+	_, err = manager.GetSession(callID)
+
+	if !errors.Is(err, neurocall.ErrCallNotFound) {
+		t.Fatalf(
+			"expected session to be removed after BYE, got err=%v",
+			err,
+		)
+	}
+
+	// -------------------------
+	// Session must be closed
+	// -------------------------
+
+	if session.Running() {
+		t.Fatal("expected session to stop after BYE")
+	}
+
+	if !session.Closed() {
+		t.Fatal("expected session to be closed after BYE")
+	}
+
+	// -------------------------
+	// RTP port must be released
+	// -------------------------
+
+	reusedPort, err := manager.ports.Allocate()
+	if err != nil {
+		t.Fatalf(
+			"expected RTP port to be released: %v",
+			err,
+		)
+	}
+
+	t.Logf(
+		"allocated port after BYE cleanup: %d",
+		reusedPort,
+	)
+
+	manager.ports.Release(reusedPort)
+
+	t.Logf(
+		"BYE cleanup successful; original RTP port was %d",
+		allocatedPort,
+	)
+}
+func TestIntegrationSIPBYECompleteCleanup(t *testing.T) {
+	manager := NewCallManager(21600, 21700)
+	codecs := NewCodecRegistry()
+	server := NewSIPServer(
+		SIPConfig{
+			ListenIP:   "127.0.0.1",
+			SIPPort:    0,
+			RTPMinPort: 21600,
+			RTPMaxPort: 21700,
+			ExternalIP: "127.0.0.1",
+		},
+		manager,
+		codecs,
+		&FakeSTT{},
+		nil,
+		nil,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := server.Listen(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop()
+
+	server.mu.RLock()
+	sipConn := server.conn
+	server.mu.RUnlock()
+
+	if sipConn == nil {
+		t.Fatal("SIP connection is nil")
+	}
+
+	sipAddr := sipConn.LocalAddr().(*net.UDPAddr)
+
+	client, err := net.DialUDP(
+		"udp",
+		nil,
+		sipAddr,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	callID := "integration-bye-complete"
+
+	// --------------------------------
+	// Subscribe to CallEnded
+	// --------------------------------
+
+	callEnded := make(chan bool, 1)
+
+	server.bus.Subscribe(
+		EventCallEnded,
+		func(event Event) {
+			if event.Data == nil {
+				return
+			}
+
+			select {
+			case callEnded <- true:
+			default:
+			}
+		},
+	)
+
+	// --------------------------------
+	// INVITE
+	// --------------------------------
+
+	sdpBody :=
+		"v=0\r\n" +
+			"o=test 1 1 IN IP4 127.0.0.1\r\n" +
+			"s=test\r\n" +
+			"c=IN IP4 127.0.0.1\r\n" +
+			"t=0 0\r\n" +
+			"m=audio 9000 RTP/AVP 0\r\n" +
+			"a=rtpmap:0 PCMU/8000/1\r\n"
+
+	invite :=
+		"INVITE sip:test@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:6000\r\n" +
+			"From: <sip:test@127.0.0.1>;tag=test\r\n" +
+			"To: <sip:test@127.0.0.1>\r\n" +
+			"Call-ID: " + callID + "\r\n" +
+			"CSeq: 1 INVITE\r\n" +
+			"Contact: <sip:test@127.0.0.1>\r\n" +
+			"Content-Type: application/sdp\r\n" +
+			"Content-Length: " +
+			strconv.Itoa(len(sdpBody)) +
+			"\r\n\r\n" +
+			sdpBody
+
+	if _, err := client.Write([]byte(invite)); err != nil {
+		t.Fatal(err)
+	}
+
+	client.SetReadDeadline(
+		time.Now().Add(2 * time.Second),
+	)
+
+	buffer := make([]byte, 65535)
+
+	// 100 Trying
+	n, _, err := client.ReadFromUDP(buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.HasPrefix(
+		string(buffer[:n]),
+		"SIP/2.0 100 Trying",
+	) {
+		t.Fatalf(
+			"expected 100 Trying, got:\n%s",
+			string(buffer[:n]),
+		)
+	}
+
+	// 200 OK
+	n, _, err = client.ReadFromUDP(buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response := string(buffer[:n])
+
+	if !strings.HasPrefix(response, "SIP/2.0 200 OK") {
+		t.Fatalf(
+			"expected 200 OK, got:\n%s",
+			response,
+		)
+	}
+
+	// --------------------------------
+	// Capture allocated RTP port
+	// --------------------------------
+
+	call, err := manager.Get(callID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if call == nil {
+		t.Fatal("call is nil")
+	}
+
+	rtpPort := call.LocalRTPPort
+
+	if rtpPort == 0 {
+		t.Fatal("expected RTP port to be allocated")
+	}
+
+	t.Logf("allocated RTP port: %d", rtpPort)
+
+	// --------------------------------
+	// ACK
+	// --------------------------------
+
+	ack :=
+		"ACK sip:test@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:6000\r\n" +
+			"From: <sip:test@127.0.0.1>;tag=test\r\n" +
+			"To: <sip:test@127.0.0.1>\r\n" +
+			"Call-ID: " + callID + "\r\n" +
+			"CSeq: 1 ACK\r\n" +
+			"Content-Length: 0\r\n" +
+			"\r\n"
+
+	if _, err := client.Write([]byte(ack)); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	if !call.Answered() {
+		t.Fatal("call was not answered")
+	}
+
+	// --------------------------------
+	// Verify RTP socket exists
+	// --------------------------------
+
+	call.mu.RLock()
+	rtp := call.RTP
+	call.mu.RUnlock()
+
+	if rtp == nil {
+		t.Fatal("expected RTP session before BYE")
+	}
+	session, err := manager.GetSession(callID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if session == nil {
+		t.Fatal("session is nil")
+	}
+	// --------------------------------
+	// BYE
+	// --------------------------------
+
+	bye :=
+		"BYE sip:test@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:6000\r\n" +
+			"From: <sip:test@127.0.0.1>;tag=test\r\n" +
+			"To: <sip:test@127.0.0.1>\r\n" +
+			"Call-ID: " + callID + "\r\n" +
+			"CSeq: 2 BYE\r\n" +
+			"Content-Length: 0\r\n" +
+			"\r\n"
+
+	if _, err := client.Write([]byte(bye)); err != nil {
+		t.Fatal(err)
+	}
+
+	// --------------------------------
+	// BYE → 200 OK
+	// --------------------------------
+
+	n, _, err = client.ReadFromUDP(buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response = string(buffer[:n])
+
+	if !strings.HasPrefix(response, "SIP/2.0 200 OK") {
+		t.Fatalf(
+			"expected 200 OK for BYE, got:\n%s",
+			response,
+		)
+	}
+
+	// --------------------------------
+	// CallEnded event
+	// --------------------------------
+
+	select {
+	case <-callEnded:
+		t.Log("EventCallEnded received")
+
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for EventCallEnded")
+	}
+	if session.Running() {
+		t.Fatal("session is still running after BYE")
+	}
+
+	if !session.Closed() {
+		t.Fatal("session is not closed after BYE")
+	}
+	// --------------------------------
+	// Call removed
+	// --------------------------------
+
+	_, err = manager.Get(callID)
+
+	if !errors.Is(err, neurocall.ErrCallNotFound) {
+		t.Fatalf(
+			"expected call to be removed, got err=%v",
+			err,
+		)
+	}
+
+	// --------------------------------
+	// Session removed
+	// --------------------------------
+
+	_, err = manager.GetSession(callID)
+
+	if !errors.Is(err, neurocall.ErrCallNotFound) {
+		t.Fatalf(
+			"expected session to be removed, got err=%v",
+			err,
+		)
+	}
+
+	// --------------------------------
+	// Original session closed
+	// --------------------------------
+
+	// if session, ok := call.Session.(*CallSession); ok {
+	// 	if session.Running() {
+	// 		t.Fatal("session is still running after BYE")
+	// 	}
+
+	// 	if !session.Closed() {
+	// 		t.Fatal("session is not closed after BYE")
+	// 	}
+	// }
+
+	// --------------------------------
+	// RTP must be closed
+	// --------------------------------
+
+	call.mu.RLock()
+	rtpAfter := call.RTP
+	pipelineAfter := call.Pipeline
+	call.mu.RUnlock()
+
+	if rtpAfter != nil {
+		t.Fatal("expected call.RTP to be nil after cleanup")
+	}
+
+	if pipelineAfter != nil {
+		t.Fatal("expected call.Pipeline to be nil after cleanup")
+	}
+
+	// --------------------------------
+	// RTP port must be reusable
+	// --------------------------------
+
+	reusedPort, err := manager.ports.Allocate()
+	if err != nil {
+		t.Fatalf(
+			"RTP port was not released: %v",
+			err,
+		)
+	}
+
+	t.Logf(
+		"RTP port allocation after BYE: %d",
+		reusedPort,
+	)
+
+	manager.ports.Release(reusedPort)
+
+	t.Log("complete BYE cleanup verified")
+}
+func TestIntegrationSIPCancelCompleteCleanup(t *testing.T) {
+	manager := NewCallManager(21800, 21900)
+	codecs := NewCodecRegistry()
+
+	server := NewSIPServer(
+		SIPConfig{
+			ListenIP:   "127.0.0.1",
+			SIPPort:    0,
+			RTPMinPort: 21800,
+			RTPMaxPort: 21900,
+			ExternalIP: "127.0.0.1",
+		},
+		manager,
+		codecs,
+		&FakeSTT{},
+		nil,
+		nil,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := server.Listen(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop()
+
+	server.mu.RLock()
+	sipConn := server.conn
+	server.mu.RUnlock()
+
+	if sipConn == nil {
+		t.Fatal("SIP connection is nil")
+	}
+
+	sipAddr := sipConn.LocalAddr().(*net.UDPAddr)
+
+	client, err := net.DialUDP(
+		"udp",
+		nil,
+		sipAddr,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	callID := "integration-cancel-complete"
+
+	// --------------------------------
+	// Subscribe to CallEnded
+	// --------------------------------
+
+	callEnded := make(chan bool, 1)
+
+	server.bus.Subscribe(
+		EventCallEnded,
+		func(event Event) {
+			if event.Data == nil {
+				return
+			}
+
+			select {
+			case callEnded <- true:
+			default:
+			}
+		},
+	)
+
+	// --------------------------------
+	// INVITE
+	// --------------------------------
+
+	sdpBody :=
+		"v=0\r\n" +
+			"o=test 1 1 IN IP4 127.0.0.1\r\n" +
+			"s=test\r\n" +
+			"c=IN IP4 127.0.0.1\r\n" +
+			"t=0 0\r\n" +
+			"m=audio 9000 RTP/AVP 0\r\n" +
+			"a=rtpmap:0 PCMU/8000/1\r\n"
+
+	invite :=
+		"INVITE sip:test@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:6000\r\n" +
+			"From: <sip:test@127.0.0.1>;tag=test\r\n" +
+			"To: <sip:test@127.0.0.1>\r\n" +
+			"Call-ID: " + callID + "\r\n" +
+			"CSeq: 1 INVITE\r\n" +
+			"Contact: <sip:test@127.0.0.1>\r\n" +
+			"Content-Type: application/sdp\r\n" +
+			"Content-Length: " +
+			strconv.Itoa(len(sdpBody)) +
+			"\r\n\r\n" +
+			sdpBody
+
+	if _, err := client.Write([]byte(invite)); err != nil {
+		t.Fatal(err)
+	}
+
+	client.SetReadDeadline(
+		time.Now().Add(2 * time.Second),
+	)
+
+	buffer := make([]byte, 65535)
+
+	// --------------------------------
+	// 100 Trying
+	// --------------------------------
+
+	n, _, err := client.ReadFromUDP(buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response := string(buffer[:n])
+
+	if !strings.HasPrefix(
+		response,
+		"SIP/2.0 100 Trying",
+	) {
+		t.Fatalf(
+			"expected 100 Trying, got:\n%s",
+			response,
+		)
+	}
+
+	// --------------------------------
+	// Verify call/session created
+	// --------------------------------
+
+	call, err := manager.Get(callID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if call == nil {
+		t.Fatal("call is nil")
+	}
+
+	session, err := manager.GetSession(callID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if session == nil {
+		t.Fatal("session is nil")
+	}
+
+	t.Log("call and session created")
+
+	// --------------------------------
+	// Capture RTP port
+	// --------------------------------
+
+	rtpPort := call.LocalRTPPort
+
+	if rtpPort == 0 {
+		t.Fatal("expected RTP port to be allocated")
+	}
+
+	t.Logf(
+		"allocated RTP port before CANCEL: %d",
+		rtpPort,
+	)
+
+	// --------------------------------
+	// Verify RTP exists
+	// --------------------------------
+
+	call.mu.RLock()
+	rtp := call.RTP
+	call.mu.RUnlock()
+
+	if rtp == nil {
+		t.Fatal("expected RTP session before CANCEL")
+	}
+
+	// --------------------------------
+	// CANCEL
+	// --------------------------------
+
+	cancelRequest :=
+		"CANCEL sip:test@127.0.0.1 SIP/2.0\r\n" +
+			"Via: SIP/2.0/UDP 127.0.0.1:6000\r\n" +
+			"From: <sip:test@127.0.0.1>;tag=test\r\n" +
+			"To: <sip:test@127.0.0.1>\r\n" +
+			"Call-ID: " + callID + "\r\n" +
+			"CSeq: 1 CANCEL\r\n" +
+			"Content-Length: 0\r\n" +
+			"\r\n"
+
+	if _, err := client.Write([]byte(cancelRequest)); err != nil {
+		t.Fatal(err)
+	}
+
+	// --------------------------------
+	// CANCEL → 200 OK
+	// --------------------------------
+
+	n, _, err = client.ReadFromUDP(buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response = string(buffer[:n])
+
+	if !strings.HasPrefix(
+		response,
+		"SIP/2.0 200 OK",
+	) {
+		t.Fatalf(
+			"expected 200 OK for CANCEL, got:\n%s",
+			response,
+		)
+	}
+
+	t.Log("CANCEL 200 OK received")
+
+	// --------------------------------
+	// CallEnded event
+	// --------------------------------
+
+	select {
+	case <-callEnded:
+		t.Log("EventCallEnded received")
+
+	case <-time.After(1 * time.Second):
+		t.Fatal(
+			"timed out waiting for EventCallEnded",
+		)
+	}
+
+	// --------------------------------
+	// Verify original session closed
+	// --------------------------------
+
+	if session.Running() {
+		t.Fatal(
+			"session is still running after CANCEL",
+		)
+	}
+
+	if !session.Closed() {
+		t.Fatal(
+			"session is not closed after CANCEL",
+		)
+	}
+
+	// --------------------------------
+	// Verify call removed
+	// --------------------------------
+
+	_, err = manager.Get(callID)
+
+	if !errors.Is(
+		err,
+		neurocall.ErrCallNotFound,
+	) {
+		t.Fatalf(
+			"expected call to be removed, got err=%v",
+			err,
+		)
+	}
+
+	t.Log("call removed")
+
+	// --------------------------------
+	// Verify session removed
+	// --------------------------------
+
+	_, err = manager.GetSession(callID)
+
+	if !errors.Is(
+		err,
+		neurocall.ErrCallNotFound,
+	) {
+		t.Fatalf(
+			"expected session to be removed, got err=%v",
+			err,
+		)
+	}
+
+	t.Log("session removed")
+
+	// --------------------------------
+	// Verify RTP resources released
+	// --------------------------------
+
+	call.mu.RLock()
+	rtpAfter := call.RTP
+	pipelineAfter := call.Pipeline
+	localPortAfter := call.LocalRTPPort
+	call.mu.RUnlock()
+
+	if rtpAfter != nil {
+		t.Fatal(
+			"expected call.RTP to be nil after CANCEL",
+		)
+	}
+
+	if pipelineAfter != nil {
+		t.Fatal(
+			"expected call.Pipeline to be nil after CANCEL",
+		)
+	}
+
+	if localPortAfter != 0 {
+		t.Fatalf(
+			"expected LocalRTPPort to be 0 after CANCEL, got %d",
+			localPortAfter,
+		)
+	}
+
+	t.Log("RTP resources released")
+
+	// --------------------------------
+	// Verify RTP port released
+	// --------------------------------
+
+	reusedPort, err := manager.ports.Allocate()
+	if err != nil {
+		t.Fatalf(
+			"RTP port was not released: %v",
+			err,
+		)
+	}
+
+	t.Logf(
+		"RTP port allocation after CANCEL: %d",
+		reusedPort,
+	)
+
+	manager.ports.Release(reusedPort)
+
+	t.Log("RTP port successfully reused")
+
+	// --------------------------------
+	// Final leak check
+	// --------------------------------
+
+	_, err = manager.Get(callID)
+	if !errors.Is(
+		err,
+		neurocall.ErrCallNotFound,
+	) {
+		t.Fatal(
+			"call still exists after complete CANCEL cleanup",
+		)
+	}
+
+	_, err = manager.GetSession(callID)
+	if !errors.Is(
+		err,
+		neurocall.ErrCallNotFound,
+	) {
+		t.Fatal(
+			"session still exists after complete CANCEL cleanup",
+		)
+	}
+
+	t.Log(
+		"complete CANCEL cleanup verified",
+	)
 }
