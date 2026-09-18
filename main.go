@@ -9,23 +9,33 @@ import (
 	"time"
 
 	"github.com/daniyelford/NeuroCallAi/core"
+	"github.com/daniyelford/NeuroCallAi/pkg/openaipkg"
+	"github.com/openai/openai-go/v3"
 )
 
 func main() {
 	cfg := core.DefaultConfig()
+	client := openai.NewClient()
 
-	// فعلاً STT واقعی نداریم.
-	// FakeSTT فقط برای اینکه pipeline بتواند start شود.
-	stt := &core.FakeSTT{}
+	llm := openaipkg.NewLLM(
+		&client,
+		"gpt-6-astra",
+	)
 
+	stt := openaipkg.NewSTTProvider(
+		&client,
+	)
+	tts := openaipkg.NewTTS(&client)
 	server := core.NewSIPServer(
 		cfg.SIP,
-		nil, // CallManager
-		nil, // CodecRegistry
+		nil,
+		nil,
 		stt,
-		nil, // LLM
-		nil, // TTS
+		llm,
+		tts,
 	)
+	// فعلاً STT واقعی نداریم.
+	// FakeSTT فقط برای اینکه pipeline بتواند start شود.
 
 	ctx, stop := signal.NotifyContext(
 		context.Background(),

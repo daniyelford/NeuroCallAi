@@ -2,11 +2,14 @@ package core
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/daniyelford/NeuroCallAi/pkg/neurocall"
+	"github.com/daniyelford/NeuroCallAi/pkg/openaipkg"
 )
 
 type testVAD struct {
@@ -397,4 +400,56 @@ func (l *testLLM) Chat(
 	}
 
 	return l.response, nil
+}
+func generate440HzWAV(duration time.Duration) []byte {
+	sampleRate := 16000
+	samples := int(duration.Seconds() * float64(sampleRate))
+
+	pcm := make([]int16, samples)
+
+	for i := 0; i < samples; i++ {
+		t := float64(i) / float64(sampleRate)
+
+		// 440Hz sine wave
+		pcm[i] = int16(
+			3000 * math.Sin(2*math.Pi*440*t),
+		)
+	}
+
+	return openaipkg.PCM16ToWAV(
+		pcm,
+		sampleRate,
+		1,
+	)
+}
+func generate440Hz(
+	sampleRate int,
+	duration time.Duration,
+) []int16 {
+
+	totalSamples := int(
+		float64(sampleRate) *
+			duration.Seconds(),
+	)
+
+	pcm := make([]int16, totalSamples)
+
+	frequency := 440.0
+
+	amplitude := 16000.0
+
+	for i := 0; i < totalSamples; i++ {
+
+		t := float64(i) / float64(sampleRate)
+
+		value := math.Sin(
+			2 * math.Pi * frequency * t,
+		)
+
+		pcm[i] = int16(
+			value * amplitude,
+		)
+	}
+
+	return pcm
 }

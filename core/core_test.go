@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"reflect"
 	"strconv"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"github.com/daniyelford/NeuroCallAi/pkg/neurocall"
+	"github.com/daniyelford/NeuroCallAi/pkg/openaipkg"
+	"github.com/openai/openai-go/v3"
 )
 
 func TestPCMUEncodeDecode(t *testing.T) {
@@ -14932,5 +14935,657 @@ func TestIntegrationSIPCancelCompleteCleanup(t *testing.T) {
 
 	t.Log(
 		"complete CANCEL cleanup verified",
+	)
+}
+func TestSIPCallSpeakRTP(t *testing.T) {
+	// Receiver that will act as the remote RTP endpoint.
+	receiver, err := net.ListenUDP(
+		"udp",
+		&net.UDPAddr{
+			IP:   net.ParseIP("127.0.0.1"),
+			Port: 0,
+		},
+	)
+	if err != nil {
+		t.Fatalf("listen RTP receiver: %v", err)
+	}
+	defer receiver.Close()
+
+	receiverAddr := receiver.LocalAddr().(*net.UDPAddr)
+
+	// Find a free local RTP port.
+	probe, err := net.ListenUDP(
+		"udp",
+		&net.UDPAddr{
+			IP:   net.ParseIP("127.0.0.1"),
+			Port: 0,
+		},
+	)
+	if err != nil {
+		t.Fatalf("allocate RTP port: %v", err)
+	}
+
+	localRTPPort := probe.LocalAddr().(*net.UDPAddr).Port
+	_ = probe.Close()
+
+	codec := neurocall.Codec{
+		Name:        "PCMU",
+		PayloadType: 0,
+		ClockRate:   8000,
+		Channels:    1,
+	}
+
+	rtp, err := NewRTPSession(
+		"127.0.0.1",
+		localRTPPort,
+		receiverAddr.IP,
+		receiverAddr.Port,
+		codec,
+	)
+	if err != nil {
+		t.Fatalf("create RTP session: %v", err)
+	}
+	defer rtp.Close()
+
+	pipeline := NewAudioPipeline(AudioConfig{})
+
+	encoder, err := EncoderFor(codec)
+	if err != nil {
+		t.Fatalf("create encoder: %v", err)
+	}
+
+	decoder, err := DecoderFor(codec)
+	if err != nil {
+		t.Fatalf("create decoder: %v", err)
+	}
+
+	pipeline.SetEncoder(encoder)
+	pipeline.SetDecoder(decoder)
+	pipeline.Start()
+	defer pipeline.Close()
+
+	// Generate 1 second of PCM16 silence.
+	pcm := make([]int16, 8000)
+
+	audioBytes := make([]byte, len(pcm)*2)
+	for i, sample := range pcm {
+		audioBytes[i*2] = byte(sample)
+		audioBytes[i*2+1] = byte(sample >> 8)
+	}
+	tts := &testTTS{
+		audio: neurocall.AudioStreamData{
+			Format: neurocall.AudioFormat{
+				SampleRate: 8000,
+				Channels:   1,
+				FrameSize:  160,
+				Codec:      "PCM16",
+			},
+			Data: audioBytes,
+		},
+	}
+
+	ttsEngine := &TTSEngine{
+		tts: tts,
+	}
+
+	ttsPlayback, err := NewTTSPlayback(ttsEngine)
+	if err != nil {
+		t.Fatalf("create TTS playback: %v", err)
+	}
+	defer ttsPlayback.Close()
+	call := &SIPCall{
+		CallID:   "test-speak-rtp",
+		Codec:    codec,
+		RTP:      rtp,
+		Pipeline: pipeline,
+		TTS:      ttsPlayback,
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		3*time.Second,
+	)
+	defer cancel()
+
+	err = call.Speak(ctx, "hello")
+	if err != nil {
+		t.Fatalf("Speak() failed: %v", err)
+	}
+
+	if tts.calls != 1 {
+		t.Fatalf("expected TTS to be called once, got %d", tts.calls)
+	}
+
+	if len(tts.texts) != 1 || tts.texts[0] != "hello" {
+		t.Fatalf("unexpected TTS text: %#v", tts.texts)
+	}
+
+	// Receive at least one RTP packet.
+	_ = receiver.SetReadDeadline(
+		time.Now().Add(1 * time.Second),
+	)
+
+	buffer := make([]byte, 2048)
+
+	n, remote, err := receiver.ReadFromUDP(buffer)
+	if err != nil {
+		t.Fatalf("did not receive RTP packet: %v", err)
+	}
+
+	if n <= 12 {
+		t.Fatalf("RTP packet is too small: %d bytes", n)
+	}
+	packet := &RTPPacket{}
+
+	if err := packet.Unmarshal(buffer[:n]); err != nil {
+		t.Fatalf("unmarshal RTP packet: %v", err)
+	}
+	if packet.Header.PayloadType != codec.PayloadType {
+		t.Fatalf(
+			"unexpected payload type: got %d want %d",
+			packet.Header.PayloadType,
+			codec.PayloadType,
+		)
+	}
+
+	if len(packet.Payload) == 0 {
+		t.Fatal("RTP payload is empty")
+	}
+
+	t.Logf(
+		"RTP audio received: bytes=%d payload=%d from=%s",
+		n,
+		len(packet.Payload),
+		remote,
+	)
+}
+func TestSIPCallSpeakRTPWithSineWave(t *testing.T) {
+	receiver, err := net.ListenUDP(
+		"udp",
+		&net.UDPAddr{
+			IP:   net.ParseIP("127.0.0.1"),
+			Port: 0,
+		},
+	)
+	if err != nil {
+		t.Fatalf("listen RTP receiver: %v", err)
+	}
+	defer receiver.Close()
+
+	receiverAddr := receiver.LocalAddr().(*net.UDPAddr)
+
+	probe, err := net.ListenUDP(
+		"udp",
+		&net.UDPAddr{
+			IP:   net.ParseIP("127.0.0.1"),
+			Port: 0,
+		},
+	)
+	if err != nil {
+		t.Fatalf("allocate RTP port: %v", err)
+	}
+
+	localRTPPort := probe.LocalAddr().(*net.UDPAddr).Port
+	_ = probe.Close()
+
+	codec := neurocall.Codec{
+		Name:        "PCMU",
+		PayloadType: 0,
+		ClockRate:   8000,
+		Channels:    1,
+	}
+
+	rtp, err := NewRTPSession(
+		"127.0.0.1",
+		localRTPPort,
+		receiverAddr.IP,
+		receiverAddr.Port,
+		codec,
+	)
+	if err != nil {
+		t.Fatalf("create RTP session: %v", err)
+	}
+	defer rtp.Close()
+
+	pipeline := NewAudioPipeline(AudioConfig{})
+
+	encoder, err := EncoderFor(codec)
+	if err != nil {
+		t.Fatalf("create encoder: %v", err)
+	}
+
+	decoder, err := DecoderFor(codec)
+	if err != nil {
+		t.Fatalf("create decoder: %v", err)
+	}
+
+	pipeline.SetEncoder(encoder)
+	pipeline.SetDecoder(decoder)
+
+	pipeline.Start()
+	defer pipeline.Close()
+
+	// Generate 1 second of 440Hz sine wave.
+	const (
+		sampleRate = 8000
+		duration   = 1
+		frequency  = 440
+		amplitude  = 12000
+	)
+
+	sampleCount := sampleRate * duration
+	pcm := make([]int16, sampleCount)
+
+	for i := 0; i < sampleCount; i++ {
+		tm := float64(i) / sampleRate
+
+		value := math.Sin(
+			2 * math.Pi *
+				frequency *
+				tm,
+		)
+
+		pcm[i] = int16(value * amplitude)
+	}
+
+	// Convert PCM16 to little-endian bytes.
+	audioBytes := make([]byte, len(pcm)*2)
+
+	for i, sample := range pcm {
+		audioBytes[i*2] = byte(sample)
+		audioBytes[i*2+1] = byte(sample >> 8)
+	}
+
+	tts := &testTTS{
+		audio: neurocall.AudioStreamData{
+			Format: neurocall.AudioFormat{
+				SampleRate: sampleRate,
+				Channels:   1,
+				FrameSize:  160,
+				Codec:      "PCM16",
+			},
+			Data: audioBytes,
+		},
+	}
+
+	ttsEngine := &TTSEngine{
+		tts: tts,
+	}
+
+	ttsPlayback, err := NewTTSPlayback(ttsEngine)
+	if err != nil {
+		t.Fatalf("create TTS playback: %v", err)
+	}
+	defer ttsPlayback.Close()
+
+	call := &SIPCall{
+		CallID:   "test-sine-wave",
+		Codec:    codec,
+		RTP:      rtp,
+		Pipeline: pipeline,
+		TTS:      ttsPlayback,
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		3*time.Second,
+	)
+	defer cancel()
+
+	if err := call.Speak(ctx, "440hz test"); err != nil {
+		t.Fatalf("Speak() failed: %v", err)
+	}
+
+	if tts.calls != 1 {
+		t.Fatalf(
+			"expected TTS to be called once, got %d",
+			tts.calls,
+		)
+	}
+
+	if len(tts.texts) != 1 ||
+		tts.texts[0] != "440hz test" {
+		t.Fatalf(
+			"unexpected TTS text: %#v",
+			tts.texts,
+		)
+	}
+
+	// Receive RTP packets and decode them.
+	_ = receiver.SetReadDeadline(
+		time.Now().Add(1 * time.Second),
+	)
+
+	buffer := make([]byte, 2048)
+
+	var decodedSamples []int16
+	var packetCount int
+
+	for {
+		n, _, err := receiver.ReadFromUDP(buffer)
+		if err != nil {
+			break
+		}
+
+		packet := &RTPPacket{}
+
+		if err := packet.Unmarshal(buffer[:n]); err != nil {
+			t.Fatalf(
+				"unmarshal RTP packet: %v",
+				err,
+			)
+		}
+
+		if packet.Header.PayloadType != codec.PayloadType {
+			t.Fatalf(
+				"unexpected payload type: got %d want %d",
+				packet.Header.PayloadType,
+				codec.PayloadType,
+			)
+		}
+
+		if len(packet.Payload) == 0 {
+			t.Fatal("RTP payload is empty")
+		}
+
+		samples := decoder.Decode(packet.Payload)
+
+		if len(samples) == 0 {
+			t.Fatal("decoded RTP payload contains no samples")
+		}
+
+		decodedSamples = append(
+			decodedSamples,
+			samples...,
+		)
+
+		packetCount++
+
+		// We only need enough packets to prove
+		// that actual audio is traveling.
+		if len(decodedSamples) >= 160*5 {
+			break
+		}
+	}
+
+	if packetCount == 0 {
+		t.Fatal("no RTP packets received")
+	}
+
+	if len(decodedSamples) == 0 {
+		t.Fatal("no decoded audio samples")
+	}
+
+	// Check that decoded audio is not silence.
+	var peak int16
+
+	for _, sample := range decodedSamples {
+		abs := sample
+
+		if abs < 0 {
+			abs = -abs
+		}
+
+		if abs > peak {
+			peak = abs
+		}
+	}
+
+	if peak == 0 {
+		t.Fatal(
+			"decoded audio is silent: expected 440Hz waveform",
+		)
+	}
+
+	t.Logf(
+		"RTP sine wave received successfully: packets=%d samples=%d peak=%d",
+		packetCount,
+		len(decodedSamples),
+		peak,
+	)
+}
+func TestSIPCallSpeakRTPPreserves440Hz(t *testing.T) {
+	receiver, err := net.ListenUDP(
+		"udp",
+		&net.UDPAddr{
+			IP:   net.ParseIP("127.0.0.1"),
+			Port: 0,
+		},
+	)
+	if err != nil {
+		t.Fatalf("listen RTP receiver: %v", err)
+	}
+	defer receiver.Close()
+
+	receiverAddr := receiver.LocalAddr().(*net.UDPAddr)
+
+	probe, err := net.ListenUDP(
+		"udp",
+		&net.UDPAddr{
+			IP:   net.ParseIP("127.0.0.1"),
+			Port: 0,
+		},
+	)
+	if err != nil {
+		t.Fatalf("allocate RTP port: %v", err)
+	}
+
+	localRTPPort := probe.LocalAddr().(*net.UDPAddr).Port
+	_ = probe.Close()
+
+	codec := neurocall.Codec{
+		Name:        "PCMU",
+		PayloadType: 0,
+		ClockRate:   8000,
+		Channels:    1,
+	}
+
+	rtp, err := NewRTPSession(
+		"127.0.0.1",
+		localRTPPort,
+		receiverAddr.IP,
+		receiverAddr.Port,
+		codec,
+	)
+	if err != nil {
+		t.Fatalf("create RTP session: %v", err)
+	}
+	defer rtp.Close()
+
+	pipeline := NewAudioPipeline(AudioConfig{})
+
+	encoder, err := EncoderFor(codec)
+	if err != nil {
+		t.Fatalf("create encoder: %v", err)
+	}
+
+	decoder, err := DecoderFor(codec)
+	if err != nil {
+		t.Fatalf("create decoder: %v", err)
+	}
+
+	pipeline.SetEncoder(encoder)
+	pipeline.SetDecoder(decoder)
+	pipeline.Start()
+	defer pipeline.Close()
+
+	const (
+		sampleRate = 8000
+		frequency  = 440.0
+		amplitude  = 12000
+		duration   = 1
+	)
+
+	pcm := make([]int16, sampleRate*duration)
+
+	for i := range pcm {
+		tm := float64(i) / sampleRate
+
+		pcm[i] = int16(
+			math.Sin(
+				2*math.Pi*frequency*tm,
+			) * amplitude,
+		)
+	}
+
+	audioBytes := make([]byte, len(pcm)*2)
+
+	for i, sample := range pcm {
+		audioBytes[i*2] = byte(sample)
+		audioBytes[i*2+1] = byte(sample >> 8)
+	}
+
+	tts := &testTTS{
+		audio: neurocall.AudioStreamData{
+			Format: neurocall.AudioFormat{
+				SampleRate: sampleRate,
+				Channels:   1,
+				FrameSize:  160,
+				Codec:      "PCM16",
+			},
+			Data: audioBytes,
+		},
+	}
+
+	ttsEngine := &TTSEngine{
+		tts: tts,
+	}
+
+	ttsPlayback, err := NewTTSPlayback(ttsEngine)
+	if err != nil {
+		t.Fatalf("create TTS playback: %v", err)
+	}
+	defer ttsPlayback.Close()
+
+	call := &SIPCall{
+		CallID:   "test-440hz",
+		Codec:    codec,
+		RTP:      rtp,
+		Pipeline: pipeline,
+		TTS:      ttsPlayback,
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		3*time.Second,
+	)
+	defer cancel()
+
+	if err := call.Speak(ctx, "440hz"); err != nil {
+		t.Fatalf("Speak() failed: %v", err)
+	}
+
+	_ = receiver.SetReadDeadline(
+		time.Now().Add(1 * time.Second),
+	)
+
+	buffer := make([]byte, 2048)
+
+	var samples []int16
+
+	for len(samples) < 160*10 {
+		n, _, err := receiver.ReadFromUDP(buffer)
+		if err != nil {
+			t.Fatalf(
+				"failed receiving RTP: %v",
+				err,
+			)
+		}
+
+		packet := &RTPPacket{}
+
+		if err := packet.Unmarshal(buffer[:n]); err != nil {
+			t.Fatalf(
+				"unmarshal RTP packet: %v",
+				err,
+			)
+		}
+
+		decoded := decoder.Decode(packet.Payload)
+
+		samples = append(samples, decoded...)
+	}
+
+	if len(samples) < 2 {
+		t.Fatal("not enough decoded samples")
+	}
+
+	/*
+			Estimate frequency using zero crossings.
+
+		For a sine wave:
+
+			frequency ≈ crossings * sampleRate / (2 * samples)
+	*/
+
+	zeroCrossings := 0
+
+	for i := 1; i < len(samples); i++ {
+		if samples[i-1] < 0 &&
+			samples[i] >= 0 {
+			zeroCrossings++
+		}
+	}
+
+	if zeroCrossings == 0 {
+		t.Fatal("no zero crossings detected")
+	}
+
+	measuredFrequency :=
+		float64(zeroCrossings) *
+			float64(sampleRate) /
+			float64(len(samples))
+	t.Logf(
+		"decoded samples=%d zero_crossings=%d measured_frequency=%.2fHz",
+		len(samples),
+		zeroCrossings,
+		measuredFrequency,
+	)
+
+	const tolerance = 20.0
+
+	if math.Abs(measuredFrequency-frequency) > tolerance {
+		t.Fatalf(
+			"unexpected frequency: got %.2fHz want %.2fHz ± %.2fHz",
+			measuredFrequency,
+			frequency,
+			tolerance,
+		)
+	}
+}
+func TestOpenAISTTReal(t *testing.T) {
+
+	pcm := generate440Hz(
+		16000,
+		3*time.Second,
+	)
+
+	segment := neurocall.AudioSegment{
+		Data:       pcm,
+		SampleRate: 16000,
+		Channels:   1,
+		Start:      0,
+		End:        3 * time.Second,
+		Final:      true,
+	}
+
+	client := openai.NewClient()
+
+	stt := openaipkg.NewSTTProvider(
+		&client,
+	)
+
+	result, err := stt.Transcribe(
+		context.Background(),
+		segment,
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Log(
+		"Transcript:",
+		result.Text,
 	)
 }

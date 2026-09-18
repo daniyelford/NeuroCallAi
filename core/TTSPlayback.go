@@ -10,11 +10,8 @@ import (
 func NewTTSPlayback(
 	engine *TTSEngine,
 ) (*TTSPlayback, error) {
-
 	if engine == nil {
-		return nil, fmt.Errorf(
-			"TTS engine is nil",
-		)
+		return nil, fmt.Errorf("TTS engine is nil")
 	}
 
 	ctx, cancel := context.WithCancel(
@@ -27,22 +24,11 @@ func NewTTSPlayback(
 		cancel: cancel,
 	}, nil
 }
-func (p *TTSPlayback) Close() error {
-	if p == nil {
-		return nil
-	}
 
-	if p.cancel != nil {
-		p.cancel()
-	}
-
-	return nil
-}
 func (p *TTSPlayback) Synthesize(
 	ctx context.Context,
 	text string,
 ) (neurocall.AudioStreamData, error) {
-
 	if p == nil || p.engine == nil {
 		return neurocall.AudioStreamData{}, fmt.Errorf(
 			"TTS playback is not configured",
@@ -57,4 +43,16 @@ func (p *TTSPlayback) Synthesize(
 		ctx,
 		text,
 	)
+}
+
+func (p *TTSPlayback) Close() error {
+	if p == nil {
+		return nil
+	}
+
+	if p.cancel != nil {
+		p.cancel()
+	}
+
+	return nil
 }

@@ -208,7 +208,9 @@ func (c *SIPCall) StartAudio(
 	c.mu.Unlock()
 
 	pipeline := NewAudioPipeline(cfg)
-
+	pipeline.SetResampler(
+		&LinearResampler{},
+	)
 	encoder, err :=
 		EncoderFor(c.Codec)
 
@@ -225,7 +227,9 @@ func (c *SIPCall) StartAudio(
 
 	pipeline.SetEncoder(encoder)
 	pipeline.SetDecoder(decoder)
-
+	pipeline.SetResampler(
+		&LinearResampler{},
+	)
 	pipeline.Start()
 
 	c.mu.Lock()
@@ -285,6 +289,12 @@ func (c *SIPCall) Speak(
 	)
 	if err != nil {
 		return err
+	}
+	if audio.Format.Codec != "PCM16" {
+		return fmt.Errorf(
+			"unsupported TTS codec: %s",
+			audio.Format.Codec,
+		)
 	}
 	pcm := BytesToPCM16(audio.Data)
 	if len(pcm) == 0 {
