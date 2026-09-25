@@ -256,9 +256,6 @@ func (s *SIPServer) sendResponse(req *SIPMessage, remote *net.UDPAddr, code int,
 	return err
 }
 func (s *SIPServer) handleINVITE(ctx context.Context, req *SIPMessage, remote *net.UDPAddr) error {
-	if err := s.sendResponse(req, remote, 100, "Trying", nil); err != nil {
-		return err
-	}
 	if s.stt == nil {
 		return s.sendResponse(req, remote, 503, "Service Unavailable", nil)
 	}
@@ -418,6 +415,10 @@ func (s *SIPServer) handleINVITE(ctx context.Context, req *SIPMessage, remote *n
 
 	// Start Session
 	if err := session.Start(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := s.sendResponse(req, remote, 100, "Trying", nil); err != nil {
 		cleanup()
 		return err
 	}

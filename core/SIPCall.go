@@ -290,15 +290,15 @@ func (c *SIPCall) Speak(
 	if err != nil {
 		return err
 	}
+	pcm := BytesToPCM16(audio.Data)
+	if len(pcm) == 0 {
+		return neurocall.ErrInvalidAudio
+	}
 	if audio.Format.Codec != "PCM16" {
 		return fmt.Errorf(
 			"unsupported TTS codec: %s",
 			audio.Format.Codec,
 		)
-	}
-	pcm := BytesToPCM16(audio.Data)
-	if len(pcm) == 0 {
-		return neurocall.ErrInvalidAudio
 	}
 	pcm = pipeline.Resample(
 		pcm,

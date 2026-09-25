@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"github.com/daniyelford/NeuroCallAi/pkg/neurocall"
-	"github.com/daniyelford/NeuroCallAi/pkg/openaipkg"
-	"github.com/openai/openai-go/v3"
 )
 
 func TestPCMUEncodeDecode(t *testing.T) {
@@ -3202,6 +3200,7 @@ func TestSIPCallSpeakSuccess(t *testing.T) {
 			Format: neurocall.AudioFormat{
 				SampleRate: 8000,
 				Channels:   1,
+				Codec:      "PCM16",
 			},
 			Data: make([]byte, 320),
 		},
@@ -3270,6 +3269,7 @@ func TestSIPCallSpeakInvalidTTSAudio(t *testing.T) {
 			Format: neurocall.AudioFormat{
 				SampleRate: 8000,
 				Channels:   1,
+				Codec:      "PCM16",
 			},
 			Data: nil,
 		},
@@ -3678,6 +3678,7 @@ func TestSIPCallSpeakEndToEndRTP(t *testing.T) {
 			Format: neurocall.AudioFormat{
 				SampleRate: 8000,
 				Channels:   1,
+				Codec:      "PCM16",
 			},
 			Data: PCM16ToBytes(make([]int16, 160)),
 		},
@@ -4728,6 +4729,8 @@ func TestVoiceResponseEngineHandleResponse(t *testing.T) {
 			Data: []byte{0, 1, 2, 3},
 			Format: neurocall.AudioFormat{
 				SampleRate: 8000,
+				Channels:   1,
+				Codec:      "PCM16",
 			},
 		},
 	}
@@ -15552,40 +15555,4 @@ func TestSIPCallSpeakRTPPreserves440Hz(t *testing.T) {
 			tolerance,
 		)
 	}
-}
-func TestOpenAISTTReal(t *testing.T) {
-
-	pcm := generate440Hz(
-		16000,
-		3*time.Second,
-	)
-
-	segment := neurocall.AudioSegment{
-		Data:       pcm,
-		SampleRate: 16000,
-		Channels:   1,
-		Start:      0,
-		End:        3 * time.Second,
-		Final:      true,
-	}
-
-	client := openai.NewClient()
-
-	stt := openaipkg.NewSTTProvider(
-		&client,
-	)
-
-	result, err := stt.Transcribe(
-		context.Background(),
-		segment,
-	)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Log(
-		"Transcript:",
-		result.Text,
-	)
 }
